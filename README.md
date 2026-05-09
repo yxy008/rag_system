@@ -49,7 +49,7 @@
                     v                             v
           +---------+---------+        +---------+---------+
           | Embedding Model   |        | BM25 Index        |
-          | (bge-large-zh)    |        | (jieba 分词)       |
+          | (BAAI/bge-m3)     |        | (jieba 分词)       |
           +---------+---------+        +---------+---------+
                     |                             |
                     v                             v
@@ -69,7 +69,7 @@
                                   v
                     +-------------+---------------+
                     |   Reranker 精排              |
-                    | (bge-reranker-large)         |
+                    | (bge-reranker-v2-m3)        |
                     |   交叉编码器重排序             |
                     |        精筛: top 4           |
                     +-------------+---------------+
@@ -151,8 +151,8 @@ CHROMA_COLLECTION_NAME=rag_documents
 
 # 检索配置
 RETRIEVAL_TOP_K=4
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=50
+CHUNK_SIZE=1200
+CHUNK_OVERLAP=200
 HYBRID_SEARCH_ALPHA=0.6
 
 # 多查询融合检索
@@ -412,7 +412,7 @@ SYSTEM_PROMPT = """你是公司的办事助手，有关员工的休假、报销�
 {
   "status": "ok",
   "doc_count": 1234,
-  "embedding_model": "./models/bge-large-zh-v1.5",
+  "embedding_model": "BAAI/bge-m3",
   "llm_model": "gpt-4o",
   "knowledge_base_ready": true,
   "hybrid_search": true,
@@ -472,7 +472,7 @@ SYSTEM_PROMPT = """你是公司的办事助手，有关员工的休假、报销�
 ┌──────────────────────────────────────┐
 │  阶段二：精筛（Reranker）              │
 │                                      │
-│  bge-reranker-large 交叉编码器        │
+│  bge-reranker-v2-m3 交叉编码器        │
 │  对 12 条候选逐一打分                  │
 │    ↓                                 │
 │  按相关性分数降序排列                  │

@@ -44,6 +44,7 @@ desktop.ini
 
 # Jupyter Notebook
 .ipynb_checkpoints/
+docs/
 
 # 临时文件
 *.tmp

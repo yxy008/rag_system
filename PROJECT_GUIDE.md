@@ -1,8 +1,8 @@
 # RAG 智能问答系统 - 项目完全掌握指南
 
 > **版本**: v2.0 (含 Reranker 两阶段检索)  
-> **技术栈**: LangChain + Chroma(服务模式) + bge-large-zh-v1.5 + BAAI/bge-reranker-large + Flask  
-> **LLM**: gpt-4o (OpenAI 兼容接口，可替换为 GLM-4 / Ollama 等任意兼容模型)
+> **技术栈**: LangChain + Chroma(服务模式) + BGE-M3 + bge-reranker-v2-m3 + Flask  
+> **LLM**: gpt-4o (OpenAI 兼容接口，可替换为 DeepSeek / Qwen / Ollama 等任意兼容模型)
 
 ---
 
@@ -43,7 +43,7 @@
 │           │                          │                                      │
 │  ┌────────▼──────────────────────────▼───────────┐                          │
 │  │              reranker.py                    │                          │
-│  │           BAAI/bge-reranker-large              │                          │
+│  │           bge-reranker-v2-m3                  │                          │
 │  │              交叉编码器精排                     │                          │
 │  └────────────────────────────────────────────────┘                          │
 │                                                                             │
@@ -54,13 +54,14 @@
 │                                                                             │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
 │  │  Chroma 服务    │  │  BM25 索引      │  │  Embedding 模型 │              │
-│  │  (向量数据库)    │  │  (内存中)       │  │  (bge-large)   │              │
+│  │  (向量数据库)    │  │  (内存中)       │  │  (BGE-M3)      │              │
 │  │  localhost:8000 │  │                 │  │                 │              │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘              │
 │                                                                             │
 │  ┌─────────────────┐  ┌─────────────────┐                                   │
 │  │  文档目录        │  │  LLM API        │                                   │
-│  │  documents/     │  │  (gpt-4o 等)    │                                   │
+│  │  documents/     │  │  (DeepSeek/      │                                   │
+│  │                 │  │   Qwen/GPT 等)   │                                   │
 │  └─────────────────┘  └─────────────────┘                                   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -96,7 +97,7 @@
 │ 阶段二：精筛（精度优先）                                          │
 │                                                                 │
 │  ┌──────────────┐                                               │
-│  │ Reranker     │  BAAI/bge-reranker-large                     │
+│  │ Reranker     │  bge-reranker-v2-m3                         │
 │  │ 交叉编码器    │  将 (query, doc) 一起输入                      │
 │  └──────┬───────┘                                               │
 │         ▼                                                        │
@@ -122,19 +123,17 @@
 | `app.py` | 入口 | Flask Web 服务，API 路由，对话历史管理 | ⭐⭐⭐ |
 | `vector_store.py` | 核心 | 向量检索 + BM25 + RRF + Reranker 两阶段检索 | ⭐⭐⭐ |
 | `rag_chain.py` | 核心 | RAG 问答链，Prompt 构造，LLM 调用，流式输出 | ⭐⭐⭐ |
-| `document_processor.py` | 处理 | 文档加载（多格式）+ 章节感知切分 | ⭐⭐ |
+| `document_processor.py` | 处理 | 文档加载（多格式）+ 组合拳自动路由分块 | ⭐⭐ |
 | `reranker.py` | 核心 | Reranker 懒加载与交叉编码器精排 | ⭐⭐ |
 | `ingest.py` | 脚本 | 文档入库命令行工具 | ⭐⭐ |
 | `requirements.txt` | 配置 | Python 依赖清单 | ⭐⭐ |
 | `.env` / `.env.example` | 配置 | 环境变量配置（API Key、模型路径等） | ⭐⭐ |
-| `start.bat` | 脚本 | Windows 一键启动脚本（含依赖检测） | ⭐ |
-| `start_chroma.bat` | 脚本 | Chroma 向量数据库服务启动脚本 | ⭐ |
-| `download_reranker.py` | 脚本 | 下载 bge-reranker-large 模型到本地 | ⭐ |
+| `download_reranker.py` | 脚本 | 下载 bge-reranker-v2-m3 模型到本地 | ⭐ |
 | `copy_reranker.py` | 脚本 | 从 HuggingFace 缓存复制 Reranker 模型 | ⭐ |
 | `templates/index.html` | 前端 | 问答界面 HTML | ⭐ |
 | `static/js/app.js` | 前端 | 前端交互逻辑（SSE 流式接收） | ⭐ |
 | `static/css/style.css` | 前端 | 界面样式 | ⭐ |
-| `models/` | 模型 | 本地 Embedding 模型目录（bge-large-zh-v1.5 等） | ⭐ |
+| `models/` | 模型 | 本地模型目录（BGE-M3 / bge-reranker-v2-m3 等） | ⭐ |
 | `chroma_db/` | 数据 | Chroma 向量数据库持久化目录 | ⭐ |
 | `documents/` | 数据 | 待入库的原始文档目录 | ⭐ |
 
@@ -192,8 +191,6 @@
      • --clear / --dir 参数
 
 第8步：理解辅助脚本
-  └─ start.bat / start_chroma.bat
-     • Windows 环境下的启动流程
   └─ download_reranker.py / copy_reranker.py
      • Reranker 模型的下载和部署
 ```
@@ -239,7 +236,7 @@
                                     ▼ uses
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         CrossEncoder (sentence-transformers)            │
-│                         BAAI/bge-reranker-large                         │
+│                         bge-reranker-v2-m3                             │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -255,11 +252,11 @@
 LLM_CONFIG = {
     OPENAI_API_KEY,      # LLM API 密钥
     OPENAI_BASE_URL,     # API 地址（兼容 OpenAI 格式）
-    OPENAI_MODEL,        # 模型名（默认 gpt-4o，可替换为 GLM-4 / Ollama 等）
+    OPENAI_MODEL,        # 模型名（默认 gpt-3.5-turbo，可替换为 DeepSeek / Qwen / Ollama 等）
 }
 
 EMBEDDING_CONFIG = {
-    EMBEDDING_MODEL_NAME,   # ./models/bge-large-zh-v1.5
+    EMBEDDING_MODEL_NAME,   # BAAI/bge-m3（支持 100+ 语言，8192 tokens）
     EMBEDDING_DEVICE,       # cuda / cpu
 }
 
@@ -276,12 +273,12 @@ DOCUMENT_CONFIG = {
 RETRIEVAL_CONFIG = {
     RETRIEVAL_TOP_K,         # 最终返回数量（默认 4）
     HYBRID_SEARCH_ALPHA,     # 向量权重（默认 0.6）
-    CHUNK_SIZE,              # 切片大小（默认 800）
-    CHUNK_OVERLAP,           # 重叠大小（默认 150）
+    CHUNK_SIZE,              # 切片大小（默认 1200）
+    CHUNK_OVERLAP,           # 重叠大小（默认 200）
 }
 
 RERANKER_CONFIG = {
-    RERANKER_MODEL_NAME,    # BAAI/bge-reranker-large
+    RERANKER_MODEL_NAME,    # BAAI/bge-reranker-v2-m3
     RERANKER_TOP_K,         # 精排后数量（默认 4）
     RERANKER_CANDIDATE_K,    # 粗筛候选数（默认 12）
     RERANKER_ENABLED,       # 默认启用
@@ -419,10 +416,10 @@ def format_docs_with_scores(docs_with_scores: List[tuple]) -> str:
 #### 支持的格式
 | 格式 | 加载器 | 切分方式 |
 |------|--------|----------|
-| txt, md, pdf, docx, doc | LangChain 内置 | SectionAwareSplitter |
+| txt, md, pdf, docx, doc | LangChain 内置 | 组合拳自动路由（章节感知/语义边界/递归兜底） |
 | xlsx, xls | ExcelLoader（自定义，pandas） | 按行拆分 |
 | csv | CSVLoader（自定义，pandas） | 按行拆分 |
-| html, htm | UnstructuredHTMLLoader | SectionAwareSplitter |
+| html, htm | UnstructuredHTMLLoader | 组合拳自动路由（章节感知/语义边界/递归兜底） |
 | sqlite, db | SQLiteLoader（自定义） | 按行拆分 |
 | URL | WebPageLoader（自定义） | BeautifulSoup 解析 |
 
@@ -433,7 +430,7 @@ def format_docs_with_scores(docs_with_scores: List[tuple]) -> str:
 | `load_documents(dir)` | 从目录加载所有支持格式的文档 |
 | `load_url(url)` | 从 URL 加载网页内容 |
 | `load_sqlite(db_path, table, query)` | 从 SQLite 数据库加载内容 |
-| `split_documents(docs)` | 将文档按章节结构切分为 Chunks |
+| `split_documents(docs)` | 组合拳自动路由分块（表格按行/章节感知/语义边界/递归兜底） |
 | `load_and_split(dir)` | 一步完成加载 + 分割（便捷方法） |
 
 #### SUPPORTED_EXTENSIONS 注册表
@@ -454,9 +451,19 @@ SUPPORTED_EXTENSIONS = {
 }
 ```
 
-#### SectionAwareSplitter 切分策略
+#### 组合拳分块策略
+
+DocumentProcessor 采用自动分类路由机制，根据文档特征选择最优分块器：
+
+| 文档类型 | 判断条件 | 分块器 |
+|----------|----------|--------|
+| 表格类（xlsx/xls/csv/sqlite） | 文件后缀匹配 | 按行拆分（加载时已切好） |
+| 制度/合同（有章节结构） | 检测到"第X条"、"X.X"等标题模式 | SectionAwareSplitter |
+| 网页/报告（无结构长文本） | 文本长度 > chunk_size 且无章节结构 | SemanticChunker |
+| 短文本 / 兜底 | 以上都不满足 | RecursiveCharacterTextSplitter |
+
+SectionAwareSplitter 的章节检测模式：
 ```python
-# 优先按章节结构切分
 SECTION_PATTERNS = [
     r"^(第?[一二三四五六七八九十百零\d]+[章节条款]...)",  # 一级标题
     r"^\d+\.\d+\.?\s+.+",    # 二级标题 1.1
@@ -544,12 +551,12 @@ DocumentProcessor.load_documents()
      │ 加载各种格式 → Document 对象列表
      ▼
 DocumentProcessor.split_documents()
-     │ SectionAwareSplitter 按章节切分
+     │ 组合拳自动路由：表格按行/章节感知/语义边界/递归兜底
      ▼
 VectorStoreManager.add_documents(chunks)
      │
      ├── Chroma.add_documents()
-     │     │ 每个 chunk 调用 bge-large-zh-v1.5 编码 → 向量
+     │     │ 每个 chunk 调用 BGE-M3 编码 → 向量
      │     ▼
      │     Chroma 服务（localhost:8000）
      │
@@ -610,9 +617,9 @@ rag.query(question, history)
 # .env 文件
 OPENAI_API_KEY=your_api_key
 OPENAI_BASE_URL=https://xxx/api/paas/v4
-OPENAI_MODEL=gpt-4o
+OPENAI_MODEL=gpt-3.5-turbo
 
-EMBEDDING_MODEL_NAME=./models/bge-large-zh-v1.5
+EMBEDDING_MODEL_NAME=BAAI/bge-m3
 EMBEDDING_DEVICE=cuda
 
 CHROMA_HOST=localhost
@@ -623,10 +630,10 @@ DOCUMENTS_DIR=documents
 
 RETRIEVAL_TOP_K=4
 HYBRID_SEARCH_ALPHA=0.6
-CHUNK_SIZE=800
-CHUNK_OVERLAP=150
+CHUNK_SIZE=1200
+CHUNK_OVERLAP=200
 
-RERANKER_MODEL_NAME=BAAI/bge-reranker-large
+RERANKER_MODEL_NAME=BAAI/bge-reranker-v2-m3
 RERANKER_TOP_K=4
 RERANKER_CANDIDATE_K=12
 RERANKER_ENABLED=true
@@ -642,18 +649,16 @@ FLASK_DEBUG=false
 ### 9.1 启动顺序
 
 ```bash
-# 1. 启动 Chroma 向量数据库服务（使用项目内置的 chroma.exe）
-.\start_chroma.bat
-# 等价于: .\.venv\Scripts\chroma.exe run --path ./chroma_db --host localhost --port 8000
+# 1. 启动 Chroma 向量数据库服务
+chroma run --path ./chroma_db --host localhost --port 8000
 
 # 2. 文档入库（首次需要）
 python ingest.py                    # 默认 documents/ 目录
 python ingest.py --dir ./my_docs    # 自定义目录
 python ingest.py --clear            # 清空后重新入库
 
-# 3. 启动 Flask 服务（或使用一键启动脚本）
+# 3. 启动 Flask 服务
 python app.py
-# 或: .\start.bat
 
 # 4. 访问
 http://127.0.0.1:5000
@@ -672,8 +677,6 @@ rag_system/
 ├── reranker.py               # Reranker 精排
 ├── requirements.txt          # 依赖
 ├── .env / .env.example       # 环境变量
-├── start.bat                 # 一键启动脚本
-├── start_chroma.bat          # Chroma 启动脚本
 ├── download_reranker.py      # Reranker 模型下载
 ├── copy_reranker.py          # Reranker 模型复制
 │
@@ -684,9 +687,9 @@ rag_system/
 │
 ├── chroma_db/                # Chroma 数据目录（服务模式持久化）
 │
-├── models/                   # 本地模型
-│   ├── bge-large-zh-v1.5/    # Embedding 模型
-│   └── all-MiniLM-L6-v2/     # 备用轻量 Embedding 模型
+├── models/                   # 本地模型（可选，不设置则自动从 HuggingFace 下载）
+│   ├── bge-m3/               # Embedding 模型
+│   └── bge-reranker-v2-m3/   # Reranker 模型
 │
 ├── templates/
 │   └── index.html            # 前端界面
@@ -756,7 +759,7 @@ self._llm = ChatOpenAI(
 | 问题 | 可能原因 | 解决方案 |
 |------|----------|----------|
 | 知识库为空 | 未运行 ingest.py | `python ingest.py` |
-| Chroma 连接失败 | 服务未启动 | 运行 `.\start_chroma.bat` |
+| Chroma 连接失败 | 服务未启动 | 运行 `chroma run --path ./chroma_db --host localhost --port 8000` |
 | 模型下载慢 | HuggingFace 网络 | 配置镜像或使用本地模型 |
 | 检索结果差 | chunk_size 不合适 | 调小 CHUNK_SIZE |
 | LLM 调用失败 | API 密钥问题 | 检查 OPENAI_API_KEY |
@@ -793,7 +796,7 @@ for doc, score, rtype in results:
 4. **流式输出**: SSE 实现打字机效果，提升用户体验
 5. **配置热更新**: API 实时调整混合检索和 Reranker 参数，无需重启
 6. **多格式支持**: PDF/Word/Excel/CSV/HTML/SQLite/URL 统一处理
-7. **章节感知切分**: 按文档结构切分，保留语义完整性
+7. **组合拳分块**: 自动识别文档类型，路由到最优分块器（表格按行/章节感知/语义边界/递归兜底）
 8. **Chroma 服务模式**: 独立进程管理向量数据，支持持久化和多客户端
 9. **对话历史管理**: 基于 session_id 的多轮对话支持，自动截断防溢出
 10. **OpenAI 兼容接口**: LLM 层使用标准 OpenAI API，可无缝替换为任意兼容模型
