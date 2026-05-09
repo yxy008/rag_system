@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>智能问答系统</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <!-- ===== 侧边栏 ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+        <span>RAG 知识库问答</span>
+      </div>
+    </div>
+
+    <!-- 系统状态 -->
+    <div class="status-panel">
+      <h3>系统状态</h3>
+      <div class="status-item">
+        <span class="status-label">知识库</span>
+        <span class="status-value" id="doc-count">加载中...</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Embedding</span>
+        <span class="status-value" id="embed-model">—</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">LLM 模型</span>
+        <span class="status-value" id="llm-model">—</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">会话数</span>
+        <span class="status-value" id="session-count">—</span>
+      </div>
+      <button class="btn-refresh" onclick="loadStatus()">刷新状态</button>
+    </div>
+
+    <!-- 检索模式 -->
+    <div class="status-panel">
+      <h3>检索模式</h3>
+      <label class="toggle-row">
+        <span>混合检索</span>
+        <input type="checkbox" id="hybrid-toggle" checked title="启用：向量+关键词混合检索" />
+      </label>
+      <div class="toggle-hint">混合检索 = 语义 + 关键词，效果更稳定</div>
+      <label class="toggle-row">
+        <span>Reranker 重排</span>
+        <input type="checkbox" id="reranker-toggle" checked title="启用：交叉编码器精排候选文档" />
+      </label>
+      <div class="toggle-hint">Reranker = 交叉编码器精筛，精度更高</div>
+    </div>
+
+    <!-- 操作区 -->
+    <div class="action-panel">
+      <h3>操作</h3>
+      <button class="btn-action btn-upload" onclick="triggerUpload()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        上传文件入库
+      </button>
+      <input type="file" id="file-input" style="display:none" accept=".txt,.pdf,.docx,.doc,.md,.xlsx,.xls,.csv,.html,.htm" />
+      <button class="btn-action" onclick="triggerIngest()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        重新入库文档
+      </button>
+      <button class="btn-action btn-new-session" onclick="startNewSession()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        新建对话
+      </button>
+      <button class="btn-action btn-danger" onclick="clearChat()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14H6L5 6"/>
+          <path d="M10 11v6M14 11v6"/>
+        </svg>
+        清空对话
+      </button>
+    </div>
+
+    <!-- RAG 流程说明 -->
+    <div class="flow-panel">
+      <h3>RAG 处理流程</h3>
+      <div class="flow-steps">
+        <div class="flow-step">
+          <div class="step-icon">📄</div>
+          <div class="step-text">Documents 原始文档</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">
+          <div class="step-icon">✂️</div>
+          <div class="step-text">Document Splitter 分块</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">
+          <div class="step-icon">🔢</div>
+          <div class="step-text">Embedding 向量化</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step active">
+          <div class="step-icon">🗄️</div>
+          <div class="step-text">Chroma Vector DB</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">
+          <div class="step-icon">🔍</div>
+          <div class="step-text">混合检索（+BM25）</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">
+          <div class="step-icon">🎯</div>
+          <div class="step-text">Reranker 精排</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">
+          <div class="step-icon">🔗</div>
+          <div class="step-text">Augmented Query</div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">
+          <div class="step-icon">🤖</div>
+          <div class="step-text">LLM 生成答案</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== 主聊天区域 ===== -->
+  <main class="main">
+    <div class="chat-header">
+      <h1>智能问答助手</h1>
+      <p>
+        基于您的知识库文档，精准回答问题
+        <span class="session-indicator" id="session-indicator">新对话</span>
+      </p>
+    </div>
+
+    <!-- 消息列表 -->
+    <div class="messages" id="messages">
+      <div class="message assistant">
+        <div class="message-avatar">🤖</div>
+        <div class="message-content">
+          <div class="message-text">
+            您好！我是基于 RAG 技术的智能问答助手，支持多轮对话和混合检索。<br/>
+            请先确认知识库已完成入库，然后输入您的问题，我将基于知识库内容为您解答。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 输入区 -->
+    <div class="input-area">
+      <div class="input-wrapper">
+        <textarea
+          id="question-input"
+          placeholder="输入您的问题... (Enter 发送，Shift+Enter 换行)"
+          rows="1"
+        ></textarea>
+        <button class="btn-send" id="send-btn" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">由 LangChain + Chroma + BGE-M3 + BM25 + bge-reranker-large 驱动</div>
+    </div>
+  </main>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

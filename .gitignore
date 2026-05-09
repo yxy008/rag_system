@@ -1,0 +1,48 @@
+# 环境变量（包含敏感信息，切勿提交）
+.env
+
+# Python 虚拟环境
+.venv/
+venv/
+env/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Chroma 向量数据库（数据文件，每个环境不同）
+chroma_db/
+
+# 日志文件
+*.log
+
+# 文档目录（包含私有的知识库文档）
+documents/
+
+# 本地模型文件（体积大，通过 HuggingFace 自动下载）
+models/
+
+# IDE 配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# 临时文件
+*.tmp
+*.bak
+*.bat
