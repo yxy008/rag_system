@@ -2,7 +2,7 @@
 
 基于 **LangChain + Chroma + BGE 中文模型** 构建的企业级本地 RAG（检索增强生成）智能问答系统，支持混合检索、两阶段精排、语义缓存、多会话管理等完整功能。
 
-> 另有 **Java 版**（Spring AI + Elasticsearch + ONNX Runtime），见 [rag_system_springai](../rag_system_springai)。
+> 另有 **Java 版**（Spring AI + Elasticsearch + ONNX Runtime），见 [rag_system_springai](https://github.com/yxy008/rag_system_springai.git)。
 
 ---
 
