@@ -3,185 +3,976 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>智能问答系统</title>
+  <title>RAG 智能问答系统</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script>
+    if (typeof d3 === 'undefined') {
+      var script = document.createElement('script');
+      script.src = 'https://unpkg.com/d3@7.9.0/dist/d3.min.js';
+      document.head.appendChild(script);
+    }
+  </script>
 </head>
 <body>
-  <!-- ===== 侧边栏 ===== -->
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <div class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
-        </svg>
-        <span>RAG 知识库问答</span>
-      </div>
-    </div>
 
-    <!-- 系统状态 -->
-    <div class="status-panel">
-      <h3>系统状态</h3>
-      <div class="status-item">
-        <span class="status-label">知识库</span>
-        <span class="status-value" id="doc-count">加载中...</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label">Embedding</span>
-        <span class="status-value" id="embed-model">—</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label">LLM 模型</span>
-        <span class="status-value" id="llm-model">—</span>
-      </div>
-      <div class="status-item">
-        <span class="status-label">会话数</span>
-        <span class="status-value" id="session-count">—</span>
-      </div>
-      <button class="btn-refresh" onclick="loadStatus()">刷新状态</button>
-    </div>
-
-    <!-- 检索模式 -->
-    <div class="status-panel">
-      <h3>检索模式</h3>
-      <label class="toggle-row">
-        <span>混合检索</span>
-        <input type="checkbox" id="hybrid-toggle" checked title="启用：向量+关键词混合检索" />
-      </label>
-      <div class="toggle-hint">混合检索 = 语义 + 关键词，效果更稳定</div>
-      <label class="toggle-row">
-        <span>Reranker 重排</span>
-        <input type="checkbox" id="reranker-toggle" checked title="启用：交叉编码器精排候选文档" />
-      </label>
-      <div class="toggle-hint">Reranker = 交叉编码器精筛，精度更高</div>
-    </div>
-
-    <!-- 操作区 -->
-    <div class="action-panel">
-      <h3>操作</h3>
-      <button class="btn-action btn-upload" onclick="triggerUpload()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-        上传文件入库
-      </button>
-      <input type="file" id="file-input" style="display:none" accept=".txt,.pdf,.docx,.doc,.md,.xlsx,.xls,.csv,.html,.htm" />
-      <button class="btn-action" onclick="triggerIngest()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-        重新入库文档
-      </button>
-      <button class="btn-action btn-new-session" onclick="startNewSession()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-          <path d="M12 5v14M5 12h14"/>
-        </svg>
-        新建对话
-      </button>
-      <button class="btn-action btn-danger" onclick="clearChat()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6l-1 14H6L5 6"/>
-          <path d="M10 11v6M14 11v6"/>
-        </svg>
-        清空对话
-      </button>
-    </div>
-
-    <!-- RAG 流程说明 -->
-    <div class="flow-panel">
-      <h3>RAG 处理流程</h3>
-      <div class="flow-steps">
-        <div class="flow-step">
-          <div class="step-icon">📄</div>
-          <div class="step-text">Documents 原始文档</div>
+  <!-- ====== 登录/注册页面（独立全屏层，在app之外） ====== -->
+  <div class="auth-page-wrapper" id="auth-page-wrapper">
+    <div class="auth-page">
+      <div class="auth-page-left">
+        <div class="auth-brand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+          <h1>RAG 智能问答系统</h1>
+          <p>基于 LangChain + Chroma + BGE-M3 构建的企业级知识库问答平台</p>
         </div>
-        <div class="flow-arrow">↓</div>
-        <div class="flow-step">
-          <div class="step-icon">✂️</div>
-          <div class="step-text">Document Splitter 分块</div>
-        </div>
-        <div class="flow-arrow">↓</div>
-        <div class="flow-step">
-          <div class="step-icon">🔢</div>
-          <div class="step-text">Embedding 向量化</div>
-        </div>
-        <div class="flow-arrow">↓</div>
-        <div class="flow-step active">
-          <div class="step-icon">🗄️</div>
-          <div class="step-text">Chroma Vector DB</div>
-        </div>
-        <div class="flow-arrow">↓</div>
-        <div class="flow-step">
-          <div class="step-icon">🔍</div>
-          <div class="step-text">混合检索（+BM25）</div>
-        </div>
-        <div class="flow-arrow">↓</div>
-        <div class="flow-step">
-          <div class="step-icon">🎯</div>
-          <div class="step-text">Reranker 精排</div>
-        </div>
-        <div class="flow-arrow">↓</div>
-        <div class="flow-step">
-          <div class="step-icon">🔗</div>
-          <div class="step-text">Augmented Query</div>
-        </div>
-        <div class="flow-arrow">↓</div>
-        <div class="flow-step">
-          <div class="step-icon">🤖</div>
-          <div class="step-text">LLM 生成答案</div>
+        <div class="auth-features">
+          <div class="auth-feature-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span>语义检索 + 混合搜索</span>
+          </div>
+          <div class="auth-feature-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span>多轮对话上下文理解</span>
+          </div>
+          <div class="auth-feature-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span>Reranker 精准重排序</span>
+          </div>
+          <div class="auth-feature-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span>智能语义缓存加速</span>
+          </div>
         </div>
       </div>
-    </div>
-  </aside>
 
-  <!-- ===== 主聊天区域 ===== -->
-  <main class="main">
-    <div class="chat-header">
-      <h1>智能问答助手</h1>
-      <p>
-        基于您的知识库文档，精准回答问题
-        <span class="session-indicator" id="session-indicator">新对话</span>
-      </p>
-    </div>
+      <div class="auth-page-right">
+        <!-- 登录表单 -->
+        <div class="auth-card" id="login-form">
+          <div class="auth-card-header">
+            <h2>欢迎登录</h2>
+            <p>请输入您的账号信息</p>
+          </div>
+          <div class="auth-card-body">
+            <div class="form-group">
+              <label for="login-username">用户名</label>
+              <input type="text" id="login-username" placeholder="请输入用户名" autocomplete="username" />
+            </div>
+            <div class="form-group">
+              <label for="login-password">密码</label>
+              <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password" />
+            </div>
+            <div class="form-error" id="login-error"></div>
+            <button class="btn-auth btn-auth-primary" onclick="handleLogin()">登 录</button>
+          </div>
+          <div class="auth-card-footer">
+            <span>还没有账号？</span>
+            <a href="javascript:void(0)" onclick="showRegisterForm()">立即注册</a>
+          </div>
+        </div>
 
-    <!-- 消息列表 -->
-    <div class="messages" id="messages">
-      <div class="message assistant">
-        <div class="message-avatar">🤖</div>
-        <div class="message-content">
-          <div class="message-text">
-            您好！我是基于 RAG 技术的智能问答助手，支持多轮对话和混合检索。<br/>
-            请先确认知识库已完成入库，然后输入您的问题，我将基于知识库内容为您解答。
+        <!-- 注册表单 -->
+        <div class="auth-card" id="register-form" style="display:none;">
+          <div class="auth-card-header">
+            <h2>创建账号</h2>
+            <p>注册即可使用全部功能</p>
+          </div>
+          <div class="auth-card-body">
+            <div class="form-group">
+              <label for="reg-username">用户名</label>
+              <input type="text" id="reg-username" placeholder="3-20位字符" autocomplete="username" />
+            </div>
+            <div class="form-group">
+              <label for="reg-nickname">昵称（可选）</label>
+              <input type="text" id="reg-nickname" placeholder="显示名称" autocomplete="nickname" />
+            </div>
+            <div class="form-group">
+              <label for="reg-password">密码</label>
+              <input type="password" id="reg-password" placeholder="至少6位字符" autocomplete="new-password" />
+            </div>
+            <div class="form-group">
+              <label for="reg-confirm">确认密码</label>
+              <input type="password" id="reg-confirm" placeholder="再次输入密码" autocomplete="new-password" />
+            </div>
+            <div class="form-error" id="register-error"></div>
+            <button class="btn-auth btn-auth-primary" onclick="handleRegister()">注 册</button>
+          </div>
+          <div class="auth-card-footer">
+            <span>已有账号？</span>
+            <a href="javascript:void(0)" onclick="showLoginForm()">返回登录</a>
           </div>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- 输入区 -->
-    <div class="input-area">
-      <div class="input-wrapper">
-        <textarea
-          id="question-input"
-          placeholder="输入您的问题... (Enter 发送，Shift+Enter 换行)"
-          rows="1"
-        ></textarea>
-        <button class="btn-send" id="send-btn" onclick="sendMessage()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+  <!-- ====== 主应用容器（登录后显示） ====== -->
+  <div class="app-container" id="app-container">
+
+    <!-- ====== 左侧侧边栏 ====== -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <button class="sidebar-collapse-btn" onclick="toggleSidebar()" title="收起侧边栏">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="9" y1="3" x2="9" y2="21"/>
+            <polyline points="13 9 17 12 13 15"/>
           </svg>
         </button>
+        <button class="sidebar-new-btn" onclick="startNewSession()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          <span>新对话</span>
+        </button>
       </div>
-      <div class="input-hint">由 LangChain + Chroma + BGE-M3 + BM25 + bge-reranker-large 驱动</div>
-    </div>
-  </main>
 
-  <script src="/static/js/app.js"></script>
+      <button class="sidebar-manage-btn" onclick="openManageDialog()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+        <span>管理对话</span>
+      </button>
+
+      <div class="sidebar-search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="sidebar-search-input" placeholder="搜索历史对话..." oninput="filterSidebarHistory()" />
+      </div>
+
+      <div class="sidebar-history-list" id="sidebar-history-list">
+        <div class="sidebar-history-empty">暂无历史对话</div>
+      </div>
+
+      <div class="sidebar-user-area" id="sidebar-user-area">
+        <div class="sidebar-user-btn" onclick="toggleUserMenu()">
+          <div class="sidebar-user-avatar" id="sidebar-user-avatar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <span class="sidebar-user-name" id="sidebar-user-name">未登录</span>
+          <svg class="sidebar-user-chevron" id="sidebar-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+        <div class="sidebar-user-menu" id="sidebar-user-menu" style="display:none;">
+          <button class="sidebar-menu-item" onclick="switchTab('profile')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            <span>我的</span>
+          </button>
+          <button class="sidebar-menu-item" onclick="switchTab('dashboard')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            <span>仪表盘</span>
+          </button>
+          <button class="sidebar-menu-item" onclick="switchTab('knowledge')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+            </svg>
+            <span>知识库</span>
+          </button>
+          <button class="sidebar-menu-item" onclick="switchTab('explore')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <circle cx="12" cy="12" r="10"/>
+              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+            </svg>
+            <span>知识探索</span>
+          </button>
+          <button class="sidebar-menu-item" onclick="switchTab('collaboration')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+              <path d="M16 3.13a4 4 0 010 7.75"/>
+            </svg>
+            <span>协作生态</span>
+          </button>
+          <button class="sidebar-menu-item" onclick="switchTab('bookmarks')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
+            </svg>
+            <span>个人知识空间</span>
+          </button>
+          <button class="sidebar-menu-item" onclick="switchTab('settings')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+            <span>设置</span>
+          </button>
+          <div class="sidebar-menu-divider"></div>
+          <button class="sidebar-menu-item sidebar-menu-item-danger" onclick="handleLogout()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            <span>退出登录</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <button class="sidebar-expand-btn" onclick="toggleSidebar()" title="展开侧边栏">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </button>
+
+    <!-- ====== 主内容区 ====== -->
+    <div class="main-area">
+
+      <!-- ====== 对话面板 ====== -->
+      <div class="tab-panel active" id="panel-chat">
+        <div class="chat-container">
+          <div class="chat-messages" id="messages">
+            <div class="chat-welcome">
+              <div class="welcome-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                  <path d="M2 17l10 5 10-5"/>
+                  <path d="M2 12l10 5 10-5"/>
+                </svg>
+              </div>
+              <h2>RAG 智能问答助手</h2>
+              <p id="welcome-tech-stack">加载中...</p>
+              <div class="welcome-hints">
+                <button class="hint-chip" onclick="setQuestion('请总结知识库中的核心内容')">总结核心内容</button>
+                <button class="hint-chip" onclick="setQuestion('知识库中有哪些关键概念')">关键概念</button>
+                <button class="hint-chip" onclick="setQuestion('请帮我分析知识库中的主要观点')">分析主要观点</button>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <div class="chat-input-wrapper">
+              <textarea id="question-input" placeholder="输入您的问题，Enter 发送，Shift+Enter 换行" rows="1"></textarea>
+              <button class="btn-send" id="send-btn" onclick="sendMessage()" title="发送">
+                <svg id="send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+                <svg id="stop-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none" width="18" height="18" style="display:none">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/>
+                </svg>
+              </button>
+            </div>
+            <div class="chat-input-footer">
+              <div class="chat-input-footer-left">
+                <span class="session-badge" id="session-indicator">新对话</span>
+                <div class="answer-style-selector">
+                  <span class="style-label">回答风格：</span>
+                  <select id="answer-style-select" onchange="changeAnswerStyle()">
+                    <option value="detailed">详细</option>
+                    <option value="concise">简洁</option>
+                    <option value="technical">技术</option>
+                    <option value="plain">通俗</option>
+                  </select>
+                </div>
+              </div>
+              <div class="chat-input-footer-right">
+                <button class="btn-voice" id="voice-btn" onclick="toggleVoiceInput()" title="语音输入">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+                    <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                </button>
+                <span class="input-info">LangChain + Chroma + BGE-M3 + BM25 + Reranker</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 仪表盘面板 ====== -->
+      <div class="tab-panel" id="panel-dashboard">
+        <div class="dashboard-container">
+          <div class="dash-header">
+            <h2>系统仪表盘</h2>
+            <div class="dash-header-actions">
+              <button class="btn-sm" onclick="loadDashboard()">刷新数据</button>
+              <button class="btn-sm btn-sm-danger" onclick="clearCacheFromDash()">清空缓存</button>
+              <button class="btn-sm" onclick="resetEvaluation()">重置统计</button>
+            </div>
+          </div>
+
+          <!-- 仪表盘子Tab导航 -->
+          <div class="dash-subtabs">
+            <button class="dash-subtab active" data-dashtab="overview">概览</button>
+            <button class="dash-subtab" data-dashtab="charts">图表</button>
+            <button class="dash-subtab" data-dashtab="details">详情</button>
+            <button class="dash-subtab" data-dashtab="records">记录</button>
+          </div>
+
+          <!-- 子Tab: 概览 -->
+          <div class="dash-subpanel active" id="dash-subpanel-overview">
+            <div class="dash-section">
+              <h3 class="dash-section-title">核心指标</h3>
+              <div class="dash-cards">
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-doc-count">—</div>
+                  <div class="dash-card-label">文档数</div>
+                </div>
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-sessions">—</div>
+                  <div class="dash-card-label">活跃会话</div>
+                </div>
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-total-requests">—</div>
+                  <div class="dash-card-label">总请求</div>
+                </div>
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><path d="M12 2a10 10 0 1010 10A10 10 0 0012 2z"/><path d="M12 6v6l4 2"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-llm-requests">—</div>
+                  <div class="dash-card-label">LLM 调用</div>
+                </div>
+                <div class="dash-card highlight-green">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-cache-hit-rate">—</div>
+                  <div class="dash-card-label">缓存命中率</div>
+                </div>
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-avg-latency">—</div>
+                  <div class="dash-card-label">平均延迟</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dash-section">
+              <h3 class="dash-section-title">Token 消耗</h3>
+              <div class="dash-cards">
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M6 16h.01M10 16h.01M14 16h.01"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-total-tokens">—</div>
+                  <div class="dash-card-label">总消耗</div>
+                </div>
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 014-4h12"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-input-tokens">—</div>
+                  <div class="dash-card-label">输入 Token</div>
+                </div>
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 01-4 4H4"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-output-tokens">—</div>
+                  <div class="dash-card-label">输出 Token</div>
+                </div>
+                <div class="dash-card">
+                  <div class="dash-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                  </div>
+                  <div class="dash-card-value" id="dash-avg-tokens">—</div>
+                  <div class="dash-card-label">平均/请求</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 子Tab: 图表 -->
+          <div class="dash-subpanel" id="dash-subpanel-charts">
+            <div class="dash-charts">
+              <div class="dash-chart-panel">
+                <h4>缓存命中率分布</h4>
+                <div class="chart-wrap"><canvas id="chart-cache-hit"></canvas></div>
+              </div>
+              <div class="dash-chart-panel">
+                <h4>请求与 LLM 调用统计</h4>
+                <div class="chart-wrap"><canvas id="chart-requests"></canvas></div>
+              </div>
+              <div class="dash-chart-panel">
+                <h4>缓存匹配类型分布</h4>
+                <div class="chart-wrap"><canvas id="chart-match-type"></canvas></div>
+              </div>
+              <div class="dash-chart-panel">
+                <h4>Token 消耗趋势</h4>
+                <div class="chart-wrap"><canvas id="chart-token-trend"></canvas></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 子Tab: 详情 -->
+          <div class="dash-subpanel" id="dash-subpanel-details">
+            <div class="dash-detail-grid">
+              <div class="dash-panel">
+                <h4>系统信息</h4>
+                <table class="dash-table">
+                  <tr><td>运行状态</td><td id="dash-sys-status">—</td></tr>
+                  <tr><td>Python 版本</td><td id="dash-py-ver">—</td></tr>
+                  <tr><td>操作系统</td><td id="dash-os">—</td></tr>
+                  <tr><td>CPU 核心数</td><td id="dash-cpu">—</td></tr>
+                  <tr><td>已用内存</td><td id="dash-mem-used">—</td></tr>
+                  <tr><td>空闲内存</td><td id="dash-mem-free">—</td></tr>
+                </table>
+              </div>
+              <div class="dash-panel">
+                <h4>模型信息</h4>
+                <table class="dash-table">
+                  <tr><td>LLM 模型</td><td id="dash-llm">—</td></tr>
+                  <tr><td>Embedding</td><td id="dash-embed">—</td></tr>
+                  <tr><td>Reranker</td><td id="dash-reranker">—</td></tr>
+                  <tr><td>混合检索</td><td id="dash-hybrid">—</td></tr>
+                </table>
+              </div>
+              <div class="dash-panel">
+                <h4>语义缓存</h4>
+                <table class="dash-table">
+                  <tr><td>状态</td><td id="dash-cache-status">—</td></tr>
+                  <tr><td>条目数</td><td id="dash-cache-entries">—</td></tr>
+                  <tr><td>精确命中</td><td id="dash-cache-exact">—</td></tr>
+                  <tr><td>语义命中</td><td id="dash-cache-semantic">—</td></tr>
+                  <tr><td>未命中</td><td id="dash-cache-misses">—</td></tr>
+                  <tr><td>阈值 / TTL</td><td id="dash-cache-threshold">—</td></tr>
+                </table>
+              </div>
+              <div class="dash-panel">
+                <h4>评估统计</h4>
+                <table class="dash-table">
+                  <tr><td>总请求</td><td id="dash-eval-total">—</td></tr>
+                  <tr><td>LLM 调用</td><td id="dash-eval-llm">—</td></tr>
+                  <tr><td>总体命中率</td><td id="dash-eval-hit-rate">—</td></tr>
+                  <tr><td>精确命中率</td><td id="dash-eval-exact-rate">—</td></tr>
+                  <tr><td>语义命中率</td><td id="dash-eval-semantic-rate">—</td></tr>
+                  <tr><td>LLM 延迟</td><td id="dash-eval-llm-latency">—</td></tr>
+                  <tr><td>检索延迟</td><td id="dash-eval-retrieval-latency">—</td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 子Tab: 记录 -->
+          <div class="dash-subpanel" id="dash-subpanel-records">
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead>
+                  <tr>
+                    <th>问题</th><th>来源</th><th>匹配</th><th>检索延迟</th>
+                    <th>LLM延迟</th><th>数据源</th><th>输入T</th><th>输出T</th><th>总T</th><th>时间</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-recent-requests-body">
+                  <tr><td colspan="10" class="td-empty">暂无请求记录</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 知识库面板 ====== -->
+      <div class="tab-panel" id="panel-knowledge">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>知识库管理</h2>
+          </div>
+          <div class="panel-body">
+            <!-- 系统状态 -->
+            <div class="panel-section">
+              <h3>系统状态</h3>
+              <div class="status-grid">
+                <div class="status-item">
+                  <span class="status-label">知识库文档数</span>
+                  <span class="status-value" id="kb-doc-count">加载中...</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">Embedding 模型</span>
+                  <span class="status-value" id="kb-embed-model">—</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">LLM 模型</span>
+                  <span class="status-value" id="kb-llm-model">—</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">活跃会话数</span>
+                  <span class="status-value" id="kb-session-count">—</span>
+                </div>
+              </div>
+              <button class="btn-sm" onclick="loadStatus()" style="margin-top:12px;">刷新状态</button>
+            </div>
+
+            <!-- 检索模式 -->
+            <div class="panel-section">
+              <h3>检索模式</h3>
+              <div class="toggle-group">
+                <label class="toggle-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">混合检索</span>
+                    <span class="toggle-desc">向量语义 + BM25 关键词，效果更稳定</span>
+                  </div>
+                  <input type="checkbox" id="hybrid-toggle" checked />
+                </label>
+                <label class="toggle-row">
+                  <div class="toggle-info">
+                    <span class="toggle-label">Reranker 重排</span>
+                    <span class="toggle-desc">交叉编码器精排候选文档，精度更高</span>
+                  </div>
+                  <input type="checkbox" id="reranker-toggle" checked />
+                </label>
+              </div>
+            </div>
+
+            <!-- 文档操作 -->
+            <div class="panel-section">
+              <h3>文档操作</h3>
+              <div class="action-group">
+                <button class="btn-action" onclick="triggerUpload()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  上传文件入库
+                </button>
+                <input type="file" id="file-input" style="display:none" accept=".txt,.pdf,.docx,.doc,.md,.xlsx,.xls,.csv,.html,.htm" />
+                <button class="btn-action" onclick="triggerIngest()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  重新入库
+                </button>
+              </div>
+            </div>
+
+            <!-- 知识库健康检查 -->
+            <div class="panel-section">
+              <h3>知识库健康检查</h3>
+              <div class="health-actions">
+                <button class="btn-action" onclick="loadHealthCheck()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                  </svg>
+                  完整检查
+                </button>
+                <button class="btn-action" onclick="loadHealthCheck(true)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                  </svg>
+                  快速检查
+                </button>
+              </div>
+              <div class="health-result" id="health-result" style="display:none;">
+                <div class="health-overall" id="health-overall"></div>
+                <div class="health-dimensions" id="health-dimensions"></div>
+                <div class="health-warnings" id="health-warnings"></div>
+                <div class="health-suggestions" id="health-suggestions"></div>
+              </div>
+              <div class="health-loading" id="health-loading" style="display:none;">
+                <div class="spinner"></div>
+                <span>正在检查知识库健康状态...</span>
+              </div>
+            </div>
+
+            <!-- RAG 处理流程 -->
+            <div class="panel-section">
+              <h3>RAG 处理流程</h3>
+              <div class="flow-steps">
+                <div class="flow-step">
+                  <div class="step-icon">📄</div>
+                  <div class="step-text">Documents</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="step-icon">✂️</div>
+                  <div class="step-text">Splitter</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="step-icon">🔢</div>
+                  <div class="step-text">Embedding</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step active">
+                  <div class="step-icon">🗄️</div>
+                  <div class="step-text">Vector DB</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="step-icon">🔍</div>
+                  <div class="step-text">混合检索</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="step-icon">🎯</div>
+                  <div class="step-text">Reranker</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="step-icon">🔗</div>
+                  <div class="step-text">增强查询</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="step-icon">🤖</div>
+                  <div class="step-text">LLM 生成</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 知识探索面板 ====== -->
+      <div class="tab-panel" id="panel-explore">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>知识探索与创作工具</h2>
+          </div>
+          <div class="panel-body">
+
+            <!-- 知识图谱 -->
+            <div class="panel-section">
+              <h3>交互式知识图谱</h3>
+              <div class="action-group">
+                <button class="btn-action" onclick="buildKnowledgeGraph()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+                  </svg>
+                  构建知识图谱
+                </button>
+              </div>
+              <div class="kg-container" id="kg-container" style="display:none;">
+                <div class="kg-stats" id="kg-stats"></div>
+                <div class="kg-canvas" id="kg-canvas" style="width:100%;height:500px;overflow:hidden;position:relative;background:var(--bg-primary);border-radius:8px;border:1px solid var(--border);"></div>
+              </div>
+              <div class="kg-loading" id="kg-loading" style="display:none;">
+                <div class="spinner"></div>
+                <span>正在构建知识图谱...</span>
+              </div>
+            </div>
+
+            <!-- 对比式问答 -->
+            <div class="panel-section">
+              <h3>对比式问答</h3>
+              <div class="compare-form">
+                <div class="compare-inputs">
+                  <div class="compare-input-group">
+                    <label>主题 A</label>
+                    <input type="text" id="compare-topic-a" placeholder="例如：年假制度" />
+                  </div>
+                  <div class="compare-vs">VS</div>
+                  <div class="compare-input-group">
+                    <label>主题 B</label>
+                    <input type="text" id="compare-topic-b" placeholder="例如：事假制度" />
+                  </div>
+                </div>
+                <button class="btn-action" onclick="doCompareQA()">开始对比</button>
+              </div>
+              <div class="compare-result" id="compare-result" style="display:none;"></div>
+              <div class="compare-loading" id="compare-loading" style="display:none;">
+                <div class="spinner"></div>
+                <span>正在对比分析...</span>
+              </div>
+            </div>
+
+            <!-- 场景模拟问答 -->
+            <div class="panel-section">
+              <h3>场景模拟问答</h3>
+              <div class="simulate-form">
+                <textarea id="simulate-scenario" placeholder="描述一个假设场景，例如：如果员工在试用期请假超过15天，会怎样？" rows="3"></textarea>
+                <button class="btn-action" onclick="doSimulateQA()">模拟分析</button>
+              </div>
+              <div class="simulate-result" id="simulate-result" style="display:none;"></div>
+              <div class="simulate-loading" id="simulate-loading" style="display:none;">
+                <div class="spinner"></div>
+                <span>正在模拟分析...</span>
+              </div>
+            </div>
+
+            <!-- 智能摘要生成 -->
+            <div class="panel-section">
+              <h3>智能文档摘要生成</h3>
+              <div class="summarize-form">
+                <textarea id="summarize-content" placeholder="粘贴需要摘要的文档内容..." rows="5"></textarea>
+                <div class="summarize-options">
+                  <label>摘要层级：</label>
+                  <select id="summarize-level">
+                    <option value="one_line">一句话总结</option>
+                    <option value="paragraph">段落摘要</option>
+                    <option value="structured" selected>结构化摘要</option>
+                    <option value="bullets">关键要点列表</option>
+                    <option value="actions">行动项提取</option>
+                  </select>
+                  <button class="btn-action" onclick="doSummarize()">生成摘要</button>
+                </div>
+              </div>
+              <div class="summarize-result" id="summarize-result" style="display:none;"></div>
+              <div class="summarize-loading" id="summarize-loading" style="display:none;">
+                <div class="spinner"></div>
+                <span>正在生成摘要...</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 协作生态面板 ====== -->
+      <div class="tab-panel" id="panel-collaboration">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>协作式知识生态</h2>
+          </div>
+          <div class="panel-body">
+
+            <!-- 反馈统计 -->
+            <div class="panel-section">
+              <h3>反馈统计</h3>
+              <div class="feedback-stats-grid" id="feedback-stats-grid">
+                <div class="feedback-stat-card">
+                  <div class="feedback-stat-value" id="fb-total">—</div>
+                  <div class="feedback-stat-label">总反馈数</div>
+                </div>
+                <div class="feedback-stat-card positive">
+                  <div class="feedback-stat-value" id="fb-positive">—</div>
+                  <div class="feedback-stat-label">好评</div>
+                </div>
+                <div class="feedback-stat-card negative">
+                  <div class="feedback-stat-value" id="fb-negative">—</div>
+                  <div class="feedback-stat-label">差评</div>
+                </div>
+                <div class="feedback-stat-card">
+                  <div class="feedback-stat-value" id="fb-satisfaction">—</div>
+                  <div class="feedback-stat-label">满意度</div>
+                </div>
+              </div>
+              <button class="btn-sm" onclick="loadFeedbackStats()" style="margin-top:12px;">刷新统计</button>
+            </div>
+
+            <!-- 反馈列表 -->
+            <div class="panel-section">
+              <h3>最近反馈</h3>
+              <div class="feedback-list" id="feedback-list">
+                <div class="feedback-empty">暂无反馈记录</div>
+              </div>
+              <button class="btn-sm" onclick="loadFeedbackList()" style="margin-top:12px;">加载更多</button>
+            </div>
+
+            <!-- 专家路由 -->
+            <div class="panel-section">
+              <h3>专家路由</h3>
+              <div class="expert-routing-stats" id="expert-routing-stats">
+                <span>待处理：<strong id="er-pending">—</strong></span>
+                <span>已解决：<strong id="er-resolved">—</strong></span>
+                <span>解决率：<strong id="er-rate">—</strong></span>
+              </div>
+              <div class="expert-questions" id="expert-questions">
+                <div class="expert-empty">暂无待处理问题</div>
+              </div>
+              <button class="btn-sm" onclick="loadExpertRouting()" style="margin-top:12px;">刷新</button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 个人知识空间面板 ====== -->
+      <div class="tab-panel" id="panel-bookmarks">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>个人知识空间</h2>
+          </div>
+          <div class="panel-body">
+            <div class="panel-section">
+              <h3>我的收藏</h3>
+              <p class="panel-desc">这里展示你在对话中收藏的所有问答内容，方便随时回顾和学习。</p>
+              <div class="bookmarks-list" id="bookmarks-list">
+                <div class="bookmarks-empty">暂无收藏内容，在对话中点击收藏按钮即可添加</div>
+              </div>
+              <button class="btn-sm" onclick="loadBookmarks()" style="margin-top:12px;">刷新收藏</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 设置面板 ====== -->
+      <div class="tab-panel" id="panel-settings">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>系统设置</h2>
+          </div>
+          <div class="panel-body">
+            <div class="panel-section">
+              <h3>缓存管理</h3>
+              <div class="action-group">
+                <button class="btn-action btn-danger" onclick="clearCacheFromDash()">清空语义缓存</button>
+                <button class="btn-action" onclick="triggerWarmup()">执行缓存预热</button>
+              </div>
+              <div class="status-grid" style="margin-top:12px;">
+                <div class="status-item">
+                  <span class="status-label">缓存条目数</span>
+                  <span class="status-value" id="set-cache-entries">—</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">预热状态</span>
+                  <span class="status-value" id="set-warmup-ready">—</span>
+                </div>
+              </div>
+            </div>
+            <div class="panel-section">
+              <h3>对话管理</h3>
+              <div class="action-group">
+                <button class="btn-action" onclick="startNewSession()">新建对话</button>
+                <button class="btn-action btn-danger" onclick="clearChat()">清空当前对话</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    <!-- ====== 个人中心面板 ====== -->
+      <div class="tab-panel" id="panel-profile">
+        <div class="profile-container">
+          <div class="profile-header">
+            <h2>个人中心</h2>
+          </div>
+
+          <div class="profile-section">
+            <h3>基本信息</h3>
+            <div class="profile-info-grid">
+              <div class="profile-info-item">
+                <label>用户名</label>
+                <span id="profile-username">—</span>
+              </div>
+              <div class="profile-info-item">
+                <label>昵称</label>
+                <span id="profile-nickname">—</span>
+              </div>
+              <div class="profile-info-item">
+                <label>注册时间</label>
+                <span id="profile-created-at">—</span>
+              </div>
+              <div class="profile-info-item">
+                <label>最后登录</label>
+                <span id="profile-last-login">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="profile-section">
+            <h3>修改昵称</h3>
+            <div class="profile-form-row">
+              <input type="text" id="profile-new-nickname" placeholder="输入新昵称" />
+              <button class="btn-sm" onclick="updateNickname()">保存</button>
+            </div>
+            <div class="form-error" id="profile-nickname-error"></div>
+          </div>
+
+          <div class="profile-section">
+            <h3>修改密码</h3>
+            <div class="profile-form-group">
+              <div class="form-group">
+                <label for="profile-old-pwd">当前密码</label>
+                <input type="password" id="profile-old-pwd" placeholder="请输入当前密码" />
+              </div>
+              <div class="form-group">
+                <label for="profile-new-pwd">新密码</label>
+                <input type="password" id="profile-new-pwd" placeholder="至少6位字符" />
+              </div>
+              <div class="form-group">
+                <label for="profile-confirm-pwd">确认新密码</label>
+                <input type="password" id="profile-confirm-pwd" placeholder="再次输入新密码" />
+              </div>
+              <div class="form-error" id="profile-pwd-error"></div>
+              <button class="btn-sm btn-sm-danger" onclick="changePassword()">修改密码</button>
+            </div>
+          </div>
+
+          <div class="profile-section">
+            <h3>账户操作</h3>
+            <div class="profile-actions">
+              <button class="btn-action btn-action-danger" onclick="handleLogout()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                退出登录
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main-area -->
+  </div><!-- /app-container -->
+
+  <!-- Toast 容器 -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- ====== 管理对话弹窗 ====== -->
+  <div class="modal-overlay" id="manage-modal-overlay" style="display:none;">
+    <div class="manage-modal">
+      <div class="manage-modal-header">
+        <h2>管理对话记录</h2>
+        <div class="manage-modal-header-actions">
+          <button class="btn-sm btn-sm-danger" id="manage-batch-delete-btn" onclick="batchDeleteSessions()" style="display:none">批量删除</button>
+          <button class="manage-modal-close" onclick="closeManageDialog()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="manage-modal-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="manage-search-input" placeholder="搜索对话记录..." oninput="filterManageList()" />
+      </div>
+      <div class="manage-modal-toolbar">
+        <label class="manage-select-all">
+          <input type="checkbox" id="manage-select-all" onchange="toggleSelectAllSessions()" />
+          <span>全选</span>
+        </label>
+      </div>
+      <div class="manage-modal-body">
+        <div class="manage-modal-list" id="manage-modal-list">
+          <div class="manage-modal-empty">暂无对话记录</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js?v=20260515"></script>
 </body>
 </html>

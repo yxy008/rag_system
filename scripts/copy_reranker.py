@@ -2,13 +2,14 @@
 from huggingface_hub import snapshot_download
 import os
 import shutil
+from pathlib import Path
 
 cache_dir = snapshot_download("BAAI/bge-reranker-large")
 print("Cache dir:", cache_dir)
 files = os.listdir(cache_dir)
 print("Files:", files)
 
-target = "./models/bge-reranker-large"
+target = str(Path(__file__).parent.parent / "models" / "bge-reranker-large")
 os.makedirs(target, exist_ok=True)
 for f in files:
     src = os.path.join(cache_dir, f)

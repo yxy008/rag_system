@@ -18,6 +18,15 @@ build/
 # Chroma 向量数据库（数据文件，每个环境不同）
 chroma_db/
 
+# Faiss 向量数据库（本地索引文件）
+faiss_data/
+
+# 临时文件（jieba 缓存等）
+tmp/
+
+# BM25 索引缓存（自动生成，可重建）
+bm25_index.pkl
+
 # 日志文件
 *.log
 

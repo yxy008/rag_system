@@ -15,7 +15,7 @@ from typing import List, Tuple
 from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
-from config import RERANKER_MODEL_NAME, RERANKER_TOP_K, BASE_DIR
+from core.config import RERANKER_MODEL_NAME, RERANKER_TOP_K, RERANKER_RELEVANCE_THRESHOLD, BASE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class RerankerManager:
 
             logger.info(f"正在加载 Reranker 模型：{model_path}")
             self._model = CrossEncoder(
-                model_name=model_path,
+                model_name_or_path=model_path,
                 max_length=512,
                 device="cuda",
             )
@@ -80,26 +80,50 @@ class RerankerManager:
         doc_scores.sort(key=lambda x: x[1], reverse=True)
 
         logger.info(f"Reranker 完成：从 {len(documents)} 条候选中选出 top {top_k}")
+        for i, (doc, score) in enumerate(doc_scores):
+            logger.info("[Reranker-精排] #%d score=%.1f%%, 内容='%s'",
+                        i + 1, score * 100, doc.page_content[:80])
 
         return doc_scores[:top_k]
 
     def rerank_with_sources(
         self,
         query: str,
-        docs_with_scores: List[Tuple[Document, float, str]],
+        docs_with_sources: List[Tuple[Document, float, str]],
         top_k: int = None,
     ) -> List[Tuple[Document, float, str]]:
         """
         对带来源信息的检索结果进行重排序。
         返回格式与 vector_store.py 的混合检索结果一致。
+
+        相关度阈值过滤：
+          - 仅保留分数 >= RERANKER_RELEVANCE_THRESHOLD 的结果
+          - 极端情况：若所有结果均低于阈值，回退到不过滤，返回 top_k 条
         """
         if top_k is None:
             top_k = RERANKER_TOP_K
 
-        if not docs_with_scores:
+        if not docs_with_sources:
             return []
 
-        docs = [item[0] for item in docs_with_scores]
+        docs = [item[0] for item in docs_with_sources]
         reranked = self.rerank(query, docs, top_k=top_k)
 
-        return [(doc, score * 100, "rerank") for doc, score in reranked]
+        results = [(doc, score * 100, "rerank") for doc, score in reranked]
+
+        # 相关度阈值过滤
+        threshold = RERANKER_RELEVANCE_THRESHOLD
+        filtered = [(doc, score, rtype) for doc, score, rtype in results if score >= threshold]
+
+        if filtered:
+            logger.info(
+                f"Reranker 阈值过滤：{len(results)} 条中 {len(filtered)} 条 >= {threshold} 分，"
+                f"过滤掉 {len(results) - len(filtered)} 条低相关度结果"
+            )
+            return filtered
+        else:
+            logger.warning(
+                f"Reranker 阈值过滤：所有 {len(results)} 条结果均低于 {threshold} 分，"
+                f"回退到不过滤模式，返回 top {top_k} 条"
+            )
+            return results

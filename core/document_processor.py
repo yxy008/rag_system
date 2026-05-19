@@ -18,7 +18,7 @@ import numpy as np
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from config import DOCUMENTS_DIR, CHUNK_SIZE, CHUNK_OVERLAP, SEMANTIC_CHUNKING_PERCENTILE
+from core.config import DOCUMENTS_DIR, CHUNK_SIZE, CHUNK_OVERLAP, SEMANTIC_CHUNKING_PERCENTILE
 
 logger = logging.getLogger(__name__)
 
@@ -534,17 +534,19 @@ class SemanticChunker:
         chunk_size: int = 1200,
         chunk_overlap: int = 200,
         similarity_percentile: float = 90.0,
+        embeddings=None,
     ):
         """
         Args:
             chunk_size: 目标 chunk 大小（字符数）
             chunk_overlap: 重叠字符数
             similarity_percentile: 相似度分位数阈值（越低切得越细）
+            embeddings: 可选，外部传入的 Embedding 模型实例（共享以节省内存）
         """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.similarity_percentile = similarity_percentile
-        self._embeddings = None
+        self._embeddings = embeddings
 
     def _get_embeddings(self):
         """懒加载 Embedding 模型"""
@@ -739,6 +741,7 @@ class DocumentProcessor:
         self,
         chunk_size: int = CHUNK_SIZE,
         chunk_overlap: int = CHUNK_OVERLAP,
+        embeddings=None,
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -752,6 +755,7 @@ class DocumentProcessor:
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             similarity_percentile=SEMANTIC_CHUNKING_PERCENTILE,
+            embeddings=embeddings,
         )
 
         self.fallback_splitter = RecursiveCharacterTextSplitter(

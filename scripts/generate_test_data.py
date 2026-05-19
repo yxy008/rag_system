@@ -9,7 +9,7 @@ import random
 from pathlib import Path
 from io import BytesIO
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent.parent
 OUTPUT_DIR = BASE_DIR / "test_data"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

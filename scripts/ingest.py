@@ -14,6 +14,9 @@ import logging
 import sys
 from pathlib import Path
 
+# 确保可以导入项目模块（脚本在 scripts/ 子目录下）
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="将文档入库到 Chroma 向量数据库")
+    parser = argparse.ArgumentParser(description="将文档入库到向量数据库")
     parser.add_argument(
         "--dir",
         type=str,
@@ -38,9 +41,9 @@ def main():
     )
     args = parser.parse_args()
 
-    from document_processor import DocumentProcessor
-    from vector_store import VectorStoreManager
-    from config import DOCUMENTS_DIR
+    from core.document_processor import DocumentProcessor
+    from core.vector_store import VectorStoreManager
+    from core.config import DOCUMENTS_DIR
 
     documents_dir = args.dir or DOCUMENTS_DIR
 
@@ -65,8 +68,8 @@ def main():
         logger.info(f"  - {f.name}")
 
     # 初始化模块
-    processor = DocumentProcessor()
     vs_manager = VectorStoreManager()
+    processor = DocumentProcessor(embeddings=vs_manager.embeddings)
 
     # 清空数据库（可选）
     if args.clear:
@@ -88,9 +91,9 @@ def main():
     chunks = processor.split_documents(documents)
     logger.info(f"✓ 分割完成：{len(chunks)} 个 Chunks")
 
-    # Step 3: 向量化并写入 Chroma
+    # Step 3: 向量化并写入向量数据库
     logger.info("=" * 50)
-    logger.info("Step 3: 向量化并写入 Chroma（首次运行需下载 Embedding 模型，请稍候）...")
+    logger.info("Step 3: 向量化并写入向量数据库（首次运行需下载 Embedding 模型，请稍候）...")
     count = vs_manager.add_documents(chunks)
     logger.info(f"✓ 写入完成：{count} 个 Chunks 已存入向量数据库")
 
@@ -98,7 +101,8 @@ def main():
     total = vs_manager.get_document_count()
     logger.info("=" * 50)
     logger.info(f"✓ 入库完成！向量数据库当前共有 {total} 个向量")
-    logger.info(f"  数据库路径：{vs_manager._vector_store._persist_directory if vs_manager._vector_store else 'N/A'}")
+    if vs_manager._vector_store and hasattr(vs_manager._vector_store, '_persist_directory'):
+        logger.info(f"  数据库路径：{vs_manager._vector_store._persist_directory}")
     logger.info("现在可以运行 python app.py 启动问答服务")
 
 

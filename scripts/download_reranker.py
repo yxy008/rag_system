@@ -2,6 +2,7 @@
 from huggingface_hub import snapshot_download
 import os
 import shutil
+from pathlib import Path
 
 # 1. 下载到缓存
 print("正在从 HuggingFace 下载 bge-reranker-large...")
@@ -21,7 +22,7 @@ for f in files:
     print(f"  {f}: {size:.1f} MB")
 
 # 3. 复制到项目目录
-target = os.path.abspath("./models/bge-reranker-large")
+target = str(Path(__file__).parent.parent / "models" / "bge-reranker-large")
 os.makedirs(target, exist_ok=True)
 for f in files:
     src = os.path.join(cache_dir, f)

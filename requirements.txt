@@ -5,6 +5,9 @@ langchain-chroma==0.2.2
 
 chromadb==0.6.3
 
+# Milvus 向量数据库（可选，大规模生产环境推荐）
+pymilvus>=2.4.0
+
 sentence-transformers==5.1.0
 langchain-huggingface==1.2.2
 
@@ -35,3 +38,4 @@ lxml>=5.0.0
 numpy>=1.26.0
 transformers>=4.50.0
 torch>=2.5.0
+psutil>=5.9.0

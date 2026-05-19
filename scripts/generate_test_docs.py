@@ -10,7 +10,7 @@ from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent.parent
 OUTPUT_DIR = BASE_DIR / "documents"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
