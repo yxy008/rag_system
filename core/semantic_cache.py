@@ -1003,9 +1003,9 @@ class SemanticCache:
       - created_at: 创建时间（ISO 格式，用于 TTL 过期）
       - last_hit_at: 最后命中时间
 
-    缓存检索采用两阶段策略（与主知识库保持一致）：
-      阶段一（粗筛）：向量检索 top_k=N -> COSINE 阈值过滤（默认 0.88）
-      阶段二（精排）：Reranker Cross-Encoder 对候选重排序 -> 阈值过滤（默认 0.85）
+    缓存检索采用单阶段策略：
+      向量检索 top_k=N -> COSINE 相似度阈值过滤（默认 0.70）
+      直接取相似度最高的候选作为命中结果，不再使用 Reranker 精排
     """
 
     def __init__(
@@ -1050,7 +1050,6 @@ class SemanticCache:
 
         self._storage: Optional[CacheStorageBackend] = None
         self._embedding_function = embedding_function
-        self._reranker_manager = None
 
         self._hit_count = 0
         self._miss_count = 0
@@ -1086,13 +1085,6 @@ class SemanticCache:
         if not self._stats_restored:
             self._restore_stats()
         return self._storage
-
-    def _get_reranker(self):
-        """懒加载 Reranker 模型（用于缓存语义匹配精排）"""
-        if self._reranker_manager is None:
-            from core.reranker import RerankerManager
-            self._reranker_manager = RerankerManager()
-        return self._reranker_manager
 
     def _should_skip_cache(self, query_text: str) -> bool:
         creative_keywords = [
@@ -1201,22 +1193,22 @@ class SemanticCache:
             return None
 
     def _semantic_match_lookup(self, question: str) -> Optional[Dict]:
-        """两阶段语义匹配：向量粗筛 -> COSINE 阈值过滤 -> Reranker 精排"""
+        """单阶段语义匹配：向量检索 -> COSINE 阈值过滤（不使用 Reranker）"""
         try:
             storage = self.storage
             if storage is None:
                 logger.debug("语义匹配-跳过：storage 不可用")
                 return None
 
-            # ====== 阶段一：向量粗筛 ======
             results = storage.search_similar(question, n_results=self.candidate_count)
             if not results:
                 logger.info("语义匹配-未命中：search_similar 返回空")
                 return None
 
-            # COSINE 粗筛阈值过滤，收集符合条件的候选
-            candidates = []
-            logger.info("[缓存-语义粗筛] 共 %d 条候选，阈值=%.2f", len(results), self.coarse_threshold)
+            best_item = None
+            best_similarity = -1.0
+            logger.info("[缓存-语义匹配] 共 %d 条候选，阈值=%.2f", len(results), self.coarse_threshold)
+
             for item in results:
                 distance = item["distance"]
                 metadata = item["metadata"]
@@ -1227,16 +1219,15 @@ class SemanticCache:
                     similarity = 1.0 - distance
 
                 cached_query = metadata.get("query", "")[:50]
-                logger.info("[缓存-语义粗筛] id=%s, distance=%.4f, 相似度=%.4f(%.1f%%), 阈值=%.2f, cached_query='%s'",
-                            item["id"], distance, similarity, similarity * 100,
+                logger.info("[缓存-语义匹配] id=%s, 相似度=%.4f(%.1f%%), 阈值=%.2f, cached_query='%s'",
+                            item["id"], similarity, similarity * 100,
                             self.coarse_threshold, cached_query)
 
                 if similarity < self.coarse_threshold:
-                    logger.info("[缓存-语义粗筛-跳过] id=%s 相似度 %.1f%% < 阈值 %.1f%%",
+                    logger.info("[缓存-语义匹配-跳过] id=%s 相似度 %.1f%% < 阈值 %.1f%%",
                                 item["id"], similarity * 100, self.coarse_threshold * 100)
                     continue
 
-                # 检查是否过期
                 created_at_str = metadata.get("created_at", "")
                 expired = False
                 if created_at_str:
@@ -1244,51 +1235,26 @@ class SemanticCache:
                         created_at = datetime.fromisoformat(created_at_str)
                         expire_at = created_at + timedelta(hours=self.ttl_hours)
                         if datetime.now() > expire_at:
-                            logger.debug("语义匹配-粗筛跳过(过期)：id=%s, created_at=%s", item["id"], created_at_str)
+                            logger.debug("语义匹配-跳过(过期)：id=%s, created_at=%s", item["id"], created_at_str)
                             storage.delete_entries([item["id"]])
                             expired = True
                     except ValueError:
                         pass
 
-                if not expired:
-                    candidates.append(item)
+                if not expired and similarity > best_similarity:
+                    best_similarity = similarity
+                    best_item = item
 
-            if not candidates:
-                logger.info("语义匹配-未命中：粗筛后无有效候选（共 %d 条粗筛结果）", len(results))
+            if best_item is None:
+                logger.info("语义匹配-未命中：无候选通过阈值（共 %d 条粗筛结果）", len(results))
                 return None
 
             logger.info(
-                "语义匹配-粗筛完成：%d 条粗筛结果 -> %d 条进入精排",
-                len(results), len(candidates)
+                "语义匹配-命中：%d 条候选 -> 最佳相似度=%.4f(%.1f%%)",
+                len(results), best_similarity, best_similarity * 100
             )
 
-            # ====== 阶段二：Reranker 精排 ======
-            reranker = self._get_reranker()
-            pairs = [(question, c["metadata"].get("query", "")) for c in candidates]
-            scores = reranker.model.predict(pairs, show_progress_bar=False)
-
-            best_idx = -1
-            best_score = -1.0
-            for i, score in enumerate(scores):
-                score_f = float(score)
-                logger.info(
-                    "语义匹配-Reranker打分: id=%s, score=%.4f, query='%s'",
-                    candidates[i]["id"], score_f,
-                    candidates[i]["metadata"].get("query", "")[:50]
-                )
-                if score_f > best_score:
-                    best_score = score_f
-                    best_idx = i
-
-            if best_idx < 0 or best_score < self.reranker_threshold:
-                logger.info(
-                    "语义匹配-未命中：Reranker 最高分 %.4f < 精排阈值 %.4f（共 %d 条候选）",
-                    best_score, self.reranker_threshold, len(candidates)
-                )
-                return None
-
-            # ====== 命中！ ======
-            item = candidates[best_idx]
+            item = best_item
             cache_id = item["id"]
             metadata = item["metadata"]
 
@@ -1305,17 +1271,15 @@ class SemanticCache:
             sources_json = metadata.get("sources_json", "[]")
 
             logger.info(
-                "语义匹配命中（两阶段）：query='%s' -> cached='%s'，"
-                "粗筛相似度=%.4f, Reranker分数=%.4f",
-                question, cached_query,
-                item.get("distance", -1), best_score
+                "语义匹配命中：query='%s' -> cached='%s'，相似度=%.4f",
+                question, cached_query, best_similarity
             )
 
             return {
                 "query": cached_query,
                 "answer": answer,
                 "sources_json": sources_json,
-                "score": best_score,
+                "score": best_similarity,
                 "match_type": "semantic",
             }
 

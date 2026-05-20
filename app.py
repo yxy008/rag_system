@@ -16,6 +16,14 @@ app.py - Flask Web 服务入口
   POST /api/config             - 更新系统配置（混合检索开关等）
   GET  /api/health             - 知识库健康检查（五层检查体系）
   GET  /api/health?quick=true  - 快速健康检查（跳过检索抽样）
+  POST /api/evaluation/ragas/phase1       - RAGAS Phase 1 评估（4指标，无需 ground truth）
+  POST /api/evaluation/ragas/phase2       - RAGAS Phase 2 评估（8指标，需 ground truth）
+  GET  /api/evaluation/ragas/report       - 获取评估报告
+  GET  /api/evaluation/ragas/trend        - 获取评估趋势
+  GET  /api/evaluation/ragas/samples      - 获取评估样本预览
+  POST /api/evaluation/ragas/ground-truth - 添加 ground truth
+  GET  /api/evaluation/ragas/ground-truth - 查看所有 ground truth
+  DELETE /api/evaluation/ragas/ground-truth/<id> - 删除 ground truth
 """
 import json
 import logging
@@ -63,6 +71,7 @@ from services.user_profile import profile_manager
 from services.confidence import confidence_evaluator
 from services.knowledge_graph import knowledge_graph, ComparativeQA, ScenarioSimulator, DocumentSummarizer
 from services.collaboration import answer_feedback, expert_router
+from services.ragas_evaluation import ragas_evaluator
 
 # ========== 日志配置 ==========
 logging.basicConfig(
@@ -283,68 +292,64 @@ def chat():
             logger.info(f"会话 {session_id} 有 {len(history)} 条历史记录")
 
         # ===== 两级缓存检查 =====
-        #   精确匹配（MD5）—— 无论有无历史都可用
-        #   语义匹配 —— 仅当无对话历史时使用
         logger.info("[app-常规] 开始缓存查询, history=%s", bool(history))
         cached = semantic_cache.lookup(question)
         if cached:
-            can_use_cache = cached.get("match_type") == "exact" or not history
+            logger.info("缓存命中（%s），跳过检索和 LLM 生成：query='%s' -> cached='%s'",
+                        cached.get("match_type"), question, cached["query"])
 
-            if can_use_cache:
-                logger.info("缓存命中（%s），跳过检索和 LLM 生成：query='%s' -> cached='%s'",
-                            cached.get("match_type"), question, cached["query"])
+            semantic_cache.record_hit(cached.get("match_type", "semantic"))
 
-                semantic_cache.record_hit(cached.get("match_type", "semantic"))
+            sources = json.loads(cached["sources_json"])
 
-                sources = json.loads(cached["sources_json"])
+            # 语义命中后将新查询也存入缓存，下次同样问题直接精确匹配
+            if cached.get("match_type") == "semantic":
+                semantic_cache.store(question, cached["answer"], sources)
 
-                add_to_history(session_id, "user", question, user_id=user_id)
-                add_to_history(session_id, "assistant", cached["answer"], sources, user_id)
+            add_to_history(session_id, "user", question, user_id=user_id)
+            add_to_history(session_id, "assistant", cached["answer"], sources, user_id)
 
-                latency = (time.time() - start_time) * 1000
-                evaluation_service.record_request(
-                    True, cached.get("match_type", "semantic"), latency, 0, len(sources),
+            latency = (time.time() - start_time) * 1000
+            evaluation_service.record_request(
+                True, cached.get("match_type", "semantic"), latency, 0, len(sources),
+                question=question,
+            )
+
+            # 可信度评估（缓存命中时也评估）
+            confidence = None
+            try:
+                retrieval_details = {
+                    "method": "缓存命中",
+                    "candidate_count": len(sources),
+                    "reranker_enabled": False,
+                }
+                confidence = confidence_evaluator.evaluate(
+                    sources=sources,
+                    answer=cached["answer"],
                     question=question,
+                    retrieval_details=retrieval_details,
                 )
+                confidence_evaluator.save_provenance(
+                    session_id=session_id,
+                    question=question,
+                    answer=cached["answer"],
+                    sources=sources,
+                    provenance_tree=confidence.get("provenance_tree", {}),
+                    confidence=confidence,
+                )
+            except Exception as e:
+                logger.warning(f"可信度评估失败：{e}")
 
-                # 可信度评估（缓存命中时也评估）
-                confidence = None
-                try:
-                    retrieval_details = {
-                        "method": "缓存命中",
-                        "candidate_count": len(sources),
-                        "reranker_enabled": False,
-                    }
-                    confidence = confidence_evaluator.evaluate(
-                        sources=sources,
-                        answer=cached["answer"],
-                        question=question,
-                        retrieval_details=retrieval_details,
-                    )
-                    confidence_evaluator.save_provenance(
-                        session_id=session_id,
-                        question=question,
-                        answer=cached["answer"],
-                        sources=sources,
-                        provenance_tree=confidence.get("provenance_tree", {}),
-                        confidence=confidence,
-                    )
-                except Exception as e:
-                    logger.warning(f"可信度评估失败：{e}")
-
-                return jsonify({
-                    "answer": cached["answer"],
-                    "session_id": session_id,
-                    "sources": sources,
-                    "from_cache": True,
-                    "cached_query": cached["query"],
-                    "cache_score": f"{cached['score']:.4f}",
-                    "cache_match_type": cached.get("match_type", "semantic"),
-                    "confidence": confidence,
-                })
-
-            logger.debug("语义缓存命中但存在对话历史，跳过缓存：query='%s'", question)
-            semantic_cache.record_miss()
+            return jsonify({
+                "answer": cached["answer"],
+                "session_id": session_id,
+                "sources": sources,
+                "from_cache": True,
+                "cached_query": cached["query"],
+                "cache_score": f"{cached['score']:.4f}",
+                "cache_match_type": cached.get("match_type", "semantic"),
+                "confidence": confidence,
+            })
         else:
             semantic_cache.record_miss()
 
@@ -531,77 +536,73 @@ def chat_stream():
             logger.info(f"[app-流式] session={session_id[:16]}..., history_len={len(history)}, history_raw={history}")
             
             # ===== 两级缓存检查 =====
-            #   精确匹配（MD5）—— 无论有无历史都可用
-            #   语义匹配 —— 仅当无对话历史时使用
             logger.info("[app-流式] 开始缓存查询, history=%s", bool(history))
             cached = semantic_cache.lookup(question)
             if cached:
-                can_use_cache = cached.get("match_type") == "exact" or not history
+                logger.info("流式-缓存命中（%s）：query='%s' -> cached='%s'",
+                            cached.get("match_type"), question, cached["query"])
 
-                if can_use_cache:
-                    logger.info("流式-缓存命中（%s）：query='%s' -> cached='%s'",
-                                cached.get("match_type"), question, cached["query"])
+                semantic_cache.record_hit(cached.get("match_type", "semantic"))
 
-                    semantic_cache.record_hit(cached.get("match_type", "semantic"))
+                sources = json.loads(cached["sources_json"])
 
-                    sources = json.loads(cached["sources_json"])
+                # 语义命中后将新查询也存入缓存，下次同样问题直接精确匹配
+                if cached.get("match_type") == "semantic":
+                    semantic_cache.store(question, cached["answer"], sources)
 
-                    # 先发送数据源事件
-                    yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
+                # 先发送数据源事件
+                yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
 
-                    # 模拟流式输出：按字符分块发送缓存答案
-                    answer = cached["answer"]
-                    chunk_size = 10
-                    for i in range(0, len(answer), chunk_size):
-                        chunk = answer[i:i + chunk_size]
-                        yield f"data: {json.dumps({'type': 'token', 'content': chunk}, ensure_ascii=False)}\n\n"
+                # 模拟流式输出：按字符分块发送缓存答案
+                answer = cached["answer"]
+                chunk_size = 10
+                for i in range(0, len(answer), chunk_size):
+                    chunk = answer[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'token', 'content': chunk}, ensure_ascii=False)}\n\n"
 
-                    # 可信度评估（先于 done 事件，确保结果返回前端）
-                    confidence = None
-                    try:
-                        retrieval_details = {
-                            "method": "缓存命中",
-                            "candidate_count": len(sources),
-                            "reranker_enabled": False,
-                        }
-                        confidence = confidence_evaluator.evaluate(
-                            sources=sources,
-                            answer=answer,
-                            question=question,
-                            retrieval_details=retrieval_details,
-                        )
-                        confidence_evaluator.save_provenance(
-                            session_id=session_id,
-                            question=question,
-                            answer=answer,
-                            sources=sources,
-                            provenance_tree=confidence.get("provenance_tree", {}),
-                            confidence=confidence,
-                        )
-                    except Exception as e:
-                        logger.warning(f"可信度评估失败：{e}")
-
-                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'sources': sources, 'from_cache': True, 'confidence': confidence}, ensure_ascii=False)}\n\n"
-
-                    add_to_history(session_id, "user", question, user_id=user_id)
-                    add_to_history(session_id, "assistant", answer, sources, user_id)
-
-                    # 恢复原始状态
-                    vs_manager.set_hybrid_search(orig_hybrid)
-                    vs_manager.set_reranker(orig_reranker)
-                    vs_manager.set_multi_query(orig_multi_query)
-
-                    # 记录评估数据
-                    cache_latency = (time.time() - stream_start_time) * 1000
-                    evaluation_service.record_request(
-                        True, cached.get("match_type", "semantic"),
-                        cache_latency, 0, len(sources),
+                # 可信度评估（先于 done 事件，确保结果返回前端）
+                confidence = None
+                try:
+                    retrieval_details = {
+                        "method": "缓存命中",
+                        "candidate_count": len(sources),
+                        "reranker_enabled": False,
+                    }
+                    confidence = confidence_evaluator.evaluate(
+                        sources=sources,
+                        answer=answer,
                         question=question,
+                        retrieval_details=retrieval_details,
                     )
-                    return
+                    confidence_evaluator.save_provenance(
+                        session_id=session_id,
+                        question=question,
+                        answer=answer,
+                        sources=sources,
+                        provenance_tree=confidence.get("provenance_tree", {}),
+                        confidence=confidence,
+                    )
+                except Exception as e:
+                    logger.warning(f"可信度评估失败：{e}")
 
-                logger.debug("语义缓存命中但存在对话历史，跳过缓存：query='%s'", question)
-                semantic_cache.record_miss()
+                yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'sources': sources, 'from_cache': True, 'confidence': confidence}, ensure_ascii=False)}\n\n"
+
+                add_to_history(session_id, "user", question, user_id=user_id)
+                add_to_history(session_id, "assistant", answer, sources, user_id)
+
+                # 恢复原始状态
+                vs_manager.set_hybrid_search(orig_hybrid)
+                vs_manager.set_reranker(orig_reranker)
+                vs_manager.set_multi_query(orig_multi_query)
+
+                # 记录评估数据
+                cache_latency = (time.time() - stream_start_time) * 1000
+                evaluation_service.record_request(
+                    True, cached.get("match_type", "semantic"),
+                    cache_latency, 0, len(sources),
+                    question=question,
+                )
+                return
             else:
                 semantic_cache.record_miss()
 
@@ -904,6 +905,143 @@ def reset_evaluation():
     """重置评估统计"""
     evaluation_service.reset()
     return jsonify({"success": True, "message": "评估统计已重置"})
+
+
+# ======================================================================
+#  RAGAS 质量评估 API
+# ======================================================================
+
+@app.route("/api/evaluation/ragas/phase1", methods=["POST"])
+def run_ragas_phase1():
+    """
+    执行 Phase 1 评估（无需 ground truth）
+
+    评估指标：Faithfulness, Answer Relevancy, Context Precision, Context Relevancy
+
+    Request Body (optional):
+        {"sample_limit": 20}   - 评估样本数量，默认 20
+    """
+    data = request.get_json(silent=True) or {}
+    sample_limit = int(data.get("sample_limit", 20))
+    result = ragas_evaluator.run_phase1(sample_limit=sample_limit)
+    return jsonify(result)
+
+
+@app.route("/api/evaluation/ragas/phase2", methods=["POST"])
+def run_ragas_phase2():
+    """
+    执行 Phase 2 评估（需要 ground truth）
+
+    评估指标：Phase 1 四个指标 + Context Recall, Answer Correctness, Answer Semantic Similarity
+
+    前提：需要先在 /api/evaluation/ragas/ground-truth 接口标注 ground truth
+
+    Request Body (optional):
+        {"sample_limit": 20}   - 评估样本数量，默认 20
+    """
+    data = request.get_json(silent=True) or {}
+    sample_limit = int(data.get("sample_limit", 20))
+    result = ragas_evaluator.run_phase2(sample_limit=sample_limit)
+    return jsonify(result)
+
+
+@app.route("/api/evaluation/ragas/report", methods=["GET"])
+def get_ragas_report():
+    """
+    获取最近的 RAGAS 评估报告
+
+    Query params:
+        phase  - "phase1" / "phase2" / 不传则返回两者
+        limit  - 返回条数，默认 10
+    """
+    phase = request.args.get("phase", None)
+    limit = int(request.args.get("limit", 10))
+
+    if phase:
+        results = ragas_evaluator.get_recent_results(phase=phase, limit=limit)
+    else:
+        p1 = ragas_evaluator.get_recent_results(phase="phase1", limit=limit)
+        p2 = ragas_evaluator.get_recent_results(phase="phase2", limit=limit)
+        results = {"phase1": p1, "phase2": p2}
+
+    return jsonify({"results": results, "ground_truth_count": ragas_evaluator.get_ground_truth_count()})
+
+
+@app.route("/api/evaluation/ragas/trend", methods=["GET"])
+def get_ragas_trend():
+    """
+    获取评估趋势数据（用于前端折线图）
+
+    Query params:
+        phase  - "phase1" / "phase2"，默认 "phase1"
+        limit  - 返回条数，默认 30
+    """
+    phase = request.args.get("phase", "phase1")
+    limit = int(request.args.get("limit", 30))
+    trend = ragas_evaluator.get_trend(phase=phase, limit=limit)
+    return jsonify({"phase": phase, "trend": trend})
+
+
+@app.route("/api/evaluation/ragas/ground-truth", methods=["GET"])
+def get_ground_truths():
+    """获取所有 ground truth 条目"""
+    entries = ragas_evaluator.get_all_ground_truths()
+    return jsonify({"entries": entries, "count": len(entries)})
+
+
+@app.route("/api/evaluation/ragas/ground-truth", methods=["POST"])
+def add_ground_truth():
+    """
+    添加 ground truth（单条或批量）
+
+    Request Body:
+        单条: {"question": "...", "ground_truth": "..."}
+        批量: {"entries": [{"question": "...", "ground_truth": "..."}, ...]}
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"success": False, "error": "请求体为空"}), 400
+
+    # 批量添加
+    if "entries" in data:
+        count = ragas_evaluator.batch_add_ground_truth(data["entries"])
+        return jsonify({"success": True, "count": count})
+
+    # 单条添加
+    question = data.get("question", "").strip()
+    ground_truth = data.get("ground_truth", "").strip()
+    if not question or not ground_truth:
+        return jsonify({"success": False, "error": "question 和 ground_truth 不能为空"}), 400
+
+    success = ragas_evaluator.add_ground_truth(question, ground_truth)
+    return jsonify({"success": success})
+
+
+@app.route("/api/evaluation/ragas/ground-truth/<int:gt_id>", methods=["DELETE"])
+def delete_ground_truth(gt_id: int):
+    """删除一条 ground truth"""
+    success = ragas_evaluator.delete_ground_truth(gt_id)
+    return jsonify({"success": success})
+
+
+@app.route("/api/evaluation/ragas/samples", methods=["GET"])
+def get_ragas_sample_data():
+    """
+    获取可用于评估的样本预览（不实际执行评估）
+
+    Query params:
+        limit - 返回样本数，默认 10
+
+    用于前端：展示评估数据来源、手动选择 ground truth 标注
+    """
+    limit = int(request.args.get("limit", 10))
+    samples = ragas_evaluator.collect_eval_samples(limit=limit)
+    # 截断长文本用于前端展示
+    for s in samples:
+        s["context_preview"] = s["contexts"][0][:200] + "..." if s["contexts"] else ""
+        s["context_count"] = len(s["contexts"])
+        s["answer_preview"] = s["answer"][:200] + "..." if len(s["answer"]) > 200 else s["answer"]
+    return jsonify({"samples": samples, "total_collected": len(samples)})
 
 
 @app.route("/api/cache/warmup", methods=["POST"])

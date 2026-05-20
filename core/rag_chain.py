@@ -12,6 +12,7 @@ rag_chain.py - RAG 核心问答链
 import logging
 from typing import Dict, Any, List
 
+import httpx
 import openai
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
@@ -262,7 +263,7 @@ class RAGChain:
             self._raw_client = openai.OpenAI(
                 api_key=OPENAI_API_KEY,
                 base_url=OPENAI_BASE_URL,
-                timeout=60.0,
+                timeout=httpx.Timeout(120.0, connect=10.0),
             )
         return self._raw_client
 

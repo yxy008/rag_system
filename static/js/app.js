@@ -3362,3 +3362,323 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
+
+
+// ======================================================================
+//  RAGAS 评估相关函数
+// ======================================================================
+
+let ragasChart = null;
+
+async function ragasRunPhase1() {
+  var btn = document.getElementById('ragas-btn-phase1');
+  var status = document.getElementById('ragas-status');
+  var limit = parseInt(document.getElementById('ragas-sample-limit').value) || 10;
+
+  btn.disabled = true;
+  status.textContent = 'Phase 1 评估中...';
+  status.style.color = 'var(--primary)';
+
+  try {
+    var res = await apiFetch('/api/evaluation/ragas/phase1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sample_limit: limit })
+    });
+    var data = await res.json();
+
+    if (data.error) {
+      status.textContent = data.error;
+      status.style.color = 'var(--danger)';
+      btn.disabled = false;
+      return;
+    }
+
+    status.textContent = 'Phase 1 完成 (' + data.sample_count + ' 条样本)';
+    status.style.color = '#27ae60';
+    renderRagasResults(data, 'Phase 1');
+
+    // 加载趋势
+    ragasLoadTrend('phase1');
+
+  } catch (e) {
+    status.textContent = '网络错误: ' + e.message;
+    status.style.color = 'var(--danger)';
+    btn.disabled = false;
+  }
+}
+
+async function ragasRunPhase2() {
+  var btn = document.getElementById('ragas-btn-phase2');
+  var status = document.getElementById('ragas-status');
+  var limit = parseInt(document.getElementById('ragas-sample-limit').value) || 10;
+
+  btn.disabled = true;
+  status.textContent = 'Phase 2 评估中...';
+  status.style.color = '#6c5ce7';
+
+  try {
+    var res = await apiFetch('/api/evaluation/ragas/phase2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sample_limit: limit })
+    });
+    var data = await res.json();
+
+    if (data.error) {
+      status.textContent = data.error;
+      status.style.color = 'var(--danger)';
+      btn.disabled = false;
+      return;
+    }
+
+    status.textContent = 'Phase 2 完成 (' + data.sample_count + ' 条样本)';
+    status.style.color = '#27ae60';
+    renderRagasResults(data, 'Phase 2');
+
+    // 加载趋势
+    ragasLoadTrend('phase2');
+
+  } catch (e) {
+    status.textContent = '网络错误: ' + e.message;
+    status.style.color = 'var(--danger)';
+    btn.disabled = false;
+  }
+}
+
+function renderRagasResults(data, phase) {
+  var container = document.getElementById('ragas-results');
+  var cardsContainer = document.getElementById('ragas-metrics-cards');
+  var phaseLabel = document.getElementById('ragas-phase-label');
+
+  container.style.display = 'block';
+  phaseLabel.textContent = ' (' + phase + ', ' + data.sample_count + ' 条样本)';
+
+  var metrics = data.metrics || {};
+  var metricDefs = [
+    { key: 'faithfulness',          label: '忠实度',          desc: '答案声明是否源自检索上下文' },
+    { key: 'answer_relevancy',      label: '答案相关性',      desc: '答案是否与问题相关' },
+    { key: 'context_precision',     label: '上下文精确度',    desc: '检索文档信噪比（位置加权）' },
+    { key: 'context_relevancy',     label: '上下文相关度',    desc: '检索文档逐句相关句子占比' },
+    { key: 'context_recall',        label: '上下文召回率',    desc: 'ground truth 中信息覆盖率' },
+    { key: 'context_entity_recall', label: '实体召回率',      desc: 'ground truth 关键实体覆盖度' },
+    { key: 'answer_correctness',    label: '答案正确性',      desc: '与 ground truth 的事实准确性' },
+    { key: 'answer_similarity',     label: '语义相似度',      desc: '与 ground truth 的语义相似度' },
+  ];
+
+  var html = '';
+  metricDefs.forEach(function(m) {
+    if (metrics[m.key] !== undefined) {
+      var pct = (metrics[m.key] * 100).toFixed(1);
+      var color = metrics[m.key] >= 0.8 ? '#27ae60' : metrics[m.key] >= 0.6 ? '#f39c12' : '#e74c3c';
+      html += '<div class="dash-card">' +
+        '<div class="dash-card-value" style="color:' + color + ';">' + pct + '%</div>' +
+        '<div class="dash-card-label">' + m.label + '</div>' +
+        '<div class="dash-card-desc" style="font-size:11px;color:var(--muted);margin-top:4px;">' + m.desc + '</div>' +
+        '</div>';
+    }
+  });
+  cardsContainer.innerHTML = html;
+
+  // 显示趋势面板
+  document.getElementById('ragas-trend-panel').style.display = 'block';
+}
+
+async function ragasLoadTrend(phase) {
+  try {
+    var res = await apiFetch('/api/evaluation/ragas/trend?phase=' + phase + '&limit=30');
+    var data = await res.json();
+    var trend = data.trend || [];
+
+    if (trend.length === 0) return;
+
+    var ctx = document.getElementById('chart-ragas-trend').getContext('2d');
+
+    if (ragasChart) ragasChart.destroy();
+
+    var labels = trend.map(function(r) {
+      return r.created_at ? r.created_at.substr(5, 11) : '';
+    });
+    var metrics = trend[0].metrics || {};
+    var metricKeys = Object.keys(metrics);
+
+    var colors = ['#3498db', '#27ae60', '#f39c12', '#e74c3c', '#9b59b6', '#1abc9c', '#e67e22'];
+    var datasets = metricKeys.map(function(key, i) {
+      return {
+        label: key.replace('_', ' '),
+        data: trend.map(function(r) {
+          var m = r.metrics || {};
+          return (m[key] || 0) * 100;
+        }),
+        borderColor: colors[i % colors.length],
+        backgroundColor: 'transparent',
+        tension: 0.3,
+        borderWidth: 2,
+      };
+    });
+
+    ragasChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
+        },
+        scales: {
+          y: { min: 0, max: 100, ticks: { callback: function(v) { return v + '%'; } } }
+        }
+      }
+    });
+  } catch (e) {
+    console.error('加载 RAGAS 趋势失败:', e);
+  }
+}
+
+// 加载评估样本列表（用于标注 ground truth）
+async function ragasLoadSamples() {
+  var container = document.getElementById('ragas-samples-list');
+  container.innerHTML = '<p style="color:var(--muted);">加载中...</p>';
+
+  try {
+    var res = await apiFetch('/api/evaluation/ragas/samples?limit=10');
+    var data = await res.json();
+    var samples = data.samples || [];
+
+    if (samples.length === 0) {
+      container.innerHTML = '<p style="color:var(--muted);">暂无评估样本，请先进行几次问答</p>';
+      return;
+    }
+
+    var html = '<table class="dash-table"><thead><tr><th>问题</th><th>答案预览</th><th>上下文数</th><th>操作</th></tr></thead><tbody>';
+    samples.forEach(function(s, i) {
+      html += '<tr>' +
+        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(s.question) + '</td>' +
+        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(s.answer_preview || '') + '</td>' +
+        '<td>' + (s.context_count || 0) + '</td>' +
+        '<td><button class="btn-sm" onclick="ragasUseSample(' + i + ')">标注</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    // 缓存样本数据
+    window._ragasSamples = samples;
+
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--danger);">加载失败: ' + e.message + '</p>';
+  }
+}
+
+function ragasClearSamples() {
+  document.getElementById('ragas-samples-list').innerHTML = '';
+  window._ragasSamples = [];
+}
+
+function ragasUseSample(idx) {
+  var samples = window._ragasSamples || [];
+  if (idx >= 0 && idx < samples.length) {
+    document.getElementById('ragas-gt-question').value = samples[idx].question || '';
+    document.getElementById('ragas-gt-answer').value = samples[idx].answer || '';
+  }
+}
+
+async function ragasAddGroundTruth() {
+  var question = document.getElementById('ragas-gt-question').value.trim();
+  var groundTruth = document.getElementById('ragas-gt-answer').value.trim();
+  var status = document.getElementById('ragas-status');
+
+  if (!question || !groundTruth) {
+    status.textContent = '问题和标准答案均不能为空';
+    status.style.color = 'var(--danger)';
+    return;
+  }
+
+  try {
+    var res = await apiFetch('/api/evaluation/ragas/ground-truth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: question, ground_truth: groundTruth })
+    });
+    var data = await res.json();
+
+    if (data.success) {
+      status.textContent = '添加成功';
+      status.style.color = '#27ae60';
+      document.getElementById('ragas-gt-question').value = '';
+      document.getElementById('ragas-gt-answer').value = '';
+      ragasLoadGroundTruths();
+    } else {
+      status.textContent = '添加失败';
+      status.style.color = 'var(--danger)';
+    }
+
+  } catch (e) {
+    status.textContent = '网络错误: ' + e.message;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function ragasLoadGroundTruths() {
+  var container = document.getElementById('ragas-gt-list');
+  var countEl = document.getElementById('ragas-gt-count');
+
+  try {
+    var res = await apiFetch('/api/evaluation/ragas/ground-truth');
+    var data = await res.json();
+    var entries = data.entries || [];
+
+    countEl.textContent = entries.length;
+
+    if (entries.length === 0) {
+      container.innerHTML = '<p style="color:var(--muted);">暂无 ground truth</p>';
+      return;
+    }
+
+    var html = '<table class="dash-table"><thead><tr><th>问题</th><th>标准答案</th><th>时间</th><th>操作</th></tr></thead><tbody>';
+    entries.forEach(function(entry) {
+      html += '<tr>' +
+        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(entry.question) + '</td>' +
+        '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(entry.ground_truth) + '</td>' +
+        '<td>' + (entry.created_at || '').substr(0, 16) + '</td>' +
+        '<td><button class="btn-sm" style="background:#e74c3c;" onclick="ragasDeleteGroundTruth(' + entry.id + ')">删除</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--danger);">加载失败: ' + e.message + '</p>';
+  }
+}
+
+async function ragasDeleteGroundTruth(id) {
+  if (!confirm('确定删除此 ground truth？')) return;
+  try {
+    var res = await apiFetch('/api/evaluation/ragas/ground-truth/' + id, { method: 'DELETE' });
+    var data = await res.json();
+    if (data.success) {
+      ragasLoadGroundTruths();
+    }
+  } catch (e) {
+    console.error('删除失败:', e);
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// 进入仪表盘时自动加载 ground truth 数量
+document.addEventListener('DOMContentLoaded', function() {
+  // 劫持仪表盘切换事件，进入 ragas tab 时加载数据
+  var origTabSwitch = window.switchDashSubtab;
+  window.switchDashSubtab = function(tabName) {
+    if (origTabSwitch) origTabSwitch(tabName);
+    if (tabName === 'ragas') {
+      ragasLoadGroundTruths();
+    }
+  };
+});

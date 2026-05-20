@@ -320,6 +320,7 @@
             <button class="dash-subtab" data-dashtab="charts">图表</button>
             <button class="dash-subtab" data-dashtab="details">详情</button>
             <button class="dash-subtab" data-dashtab="records">记录</button>
+            <button class="dash-subtab" data-dashtab="ragas">RAGAS评估</button>
           </div>
 
           <!-- 子Tab: 概览 -->
@@ -474,6 +475,56 @@
                   <tr><td>LLM 延迟</td><td id="dash-eval-llm-latency">—</td></tr>
                   <tr><td>检索延迟</td><td id="dash-eval-retrieval-latency">—</td></tr>
                 </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 子Tab: RAGAS评估 -->
+          <div class="dash-subpanel" id="dash-subpanel-ragas">
+            <div class="dash-section">
+              <h3 class="dash-section-title">RAGAS 质量评估</h3>
+              <p class="dash-section-desc">基于 RAGAS 框架量化 RAG 系统的检索与生成质量。Phase 1 无需标注数据，Phase 2 需要问题-标准答案对。</p>
+
+              <!-- 操作按钮 -->
+              <div class="ragas-actions" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+                <button class="btn-primary" id="ragas-btn-phase1" onclick="ragasRunPhase1()">Phase 1 评估</button>
+                <button class="btn-primary" id="ragas-btn-phase2" onclick="ragasRunPhase2()" style="background:#6c5ce7;">Phase 2 评估 (需 Ground Truth)</button>
+                <span style="margin-left:8px;color:var(--muted);font-size:13px;">
+                  样本数: <input type="number" id="ragas-sample-limit" value="10" min="3" max="50" style="width:50px;padding:4px;">
+                </span>
+                <span id="ragas-status" style="font-size:13px;color:var(--muted);"></span>
+              </div>
+
+              <!-- Phase 1 结果 -->
+              <div id="ragas-results" style="display:none;">
+                <h4 style="margin:8px 0;">最新评估结果 <span id="ragas-phase-label"></span></h4>
+                <div class="dash-cards" id="ragas-metrics-cards"></div>
+              </div>
+
+              <!-- 趋势图 -->
+              <div class="dash-chart-panel" id="ragas-trend-panel" style="display:none;margin-top:16px;">
+                <h4>历史趋势</h4>
+                <div class="chart-wrap"><canvas id="chart-ragas-trend"></canvas></div>
+              </div>
+
+              <!-- Ground Truth 管理 -->
+              <div class="dash-section" style="margin-top:24px;">
+                <h3 class="dash-section-title">Ground Truth 管理</h3>
+                <p class="dash-section-desc">标注问题-标准答案对，用于 Phase 2 评估。现有 <strong id="ragas-gt-count">—</strong> 条。</p>
+                <div style="display:flex;gap:8px;margin-bottom:12px;">
+                  <button class="btn-sm" onclick="ragasLoadSamples()">加载评估样本（用于标注）</button>
+                  <button class="btn-sm" style="background:#e17055;" onclick="ragasClearSamples()">清空</button>
+                </div>
+                <div id="ragas-samples-list" class="table-scroll" style="max-height:300px;"></div>
+                <div style="margin-top:12px;">
+                  <h4>添加 Ground Truth</h4>
+                  <div style="display:flex;gap:8px;flex-direction:column;max-width:600px;">
+                    <input type="text" id="ragas-gt-question" placeholder="问题" style="padding:8px;">
+                    <textarea id="ragas-gt-answer" placeholder="标准答案" rows="3" style="padding:8px;"></textarea>
+                    <button class="btn-primary" onclick="ragasAddGroundTruth()">添加</button>
+                  </div>
+                </div>
+                <div id="ragas-gt-list" style="margin-top:12px;"></div>
               </div>
             </div>
           </div>

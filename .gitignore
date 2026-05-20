@@ -59,3 +59,5 @@ docs/
 *.tmp
 *.bak
 *.bat
+*.db
+data/conversations.db

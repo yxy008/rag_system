@@ -820,11 +820,22 @@ class VectorStoreManager:
                 model_path = str(BASE_DIR / model_path)
 
             logger.info(f"正在加载 Embedding 模型：{model_path}（设备：{EMBEDDING_DEVICE}）")
-            self._embeddings = HuggingFaceEmbeddings(
-                model_name=model_path,
-                model_kwargs={"device": EMBEDDING_DEVICE},
-                encode_kwargs={"normalize_embeddings": True},
-            )
+            try:
+                self._embeddings = HuggingFaceEmbeddings(
+                    model_name=model_path,
+                    model_kwargs={"device": EMBEDDING_DEVICE},
+                    encode_kwargs={"normalize_embeddings": True},
+                )
+            except (AssertionError, RuntimeError) as e:
+                if "CUDA" in str(e) or "cuda" in str(e).lower():
+                    logger.warning("CUDA 不可用（%s），改用 CPU 加载模型", e)
+                    self._embeddings = HuggingFaceEmbeddings(
+                        model_name=model_path,
+                        model_kwargs={"device": "cpu"},
+                        encode_kwargs={"normalize_embeddings": True},
+                    )
+                else:
+                    raise
             logger.info("Embedding 模型加载完成（BGE-M3，向量已归一化）")
         return self._embeddings
 

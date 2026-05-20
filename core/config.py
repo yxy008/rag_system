@@ -17,13 +17,20 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 
+# ========== RAGAS 评估专用 LLM 配置 ==========
+# 评估使用轻量模型降低成本（gpt-4o-mini 足够胜任评判任务）
+EVAL_API_KEY = os.getenv("EVAL_API_KEY", "")
+EVAL_BASE_URL = os.getenv("EVAL_BASE_URL", "https://api.openai.com/v1")
+EVAL_LLM_MODEL = os.getenv("EVAL_LLM_MODEL", "deepseek-v4-flash")
+EVAL_EMBEDDING_MODEL = os.getenv("EVAL_EMBEDDING_MODEL", "BAAI/bge-m3")
+
 # ========== Embedding 模型配置 ==========
 # BGE-M3: BAAI 第三代多语言 Embedding 模型
 #   - 支持 100+ 语言，8192 tokens 输入长度
 #   - 原生支持稠密+稀疏混合向量
 #   - 可通过 HuggingFace ID 自动下载，或指定本地路径
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-m3")
-EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cuda")
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cuda")  # 若 PyTorch 为 CPU 版则自动回退
 
 # ========== 向量数据库后端配置 ==========
 # 支持的后端：chroma（默认）, faiss, milvus
@@ -169,13 +176,12 @@ CACHE_MAX_ENTRIES = int(os.getenv("CACHE_MAX_ENTRIES", "1000"))
 # 缓存有效期（小时，超时自动失效）
 CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
 # 缓存向量粗筛相似度阈值（COSINE，用于向量检索阶段过滤候选）
-# 设为 0.88 确保语义近似的候选不被漏掉，最终判断交给 Reranker 精排
+# 0.70 在确保不遗漏语义近似候选的同时，控制精排阶段的候选数量
 CACHE_COARSE_THRESHOLD = float(os.getenv("CACHE_COARSE_THRESHOLD", "0.70"))
-# 缓存 Reranker 精排阈值（Cross-Encoder 分数，0~1）
-# BGE-reranker-v2-m3 对语义等价问题的分数通常在 0.85+
-# >= 0.85 语义高度一致，几乎可以确定是同一个问题
-CACHE_RERANKER_THRESHOLD = float(os.getenv("CACHE_RERANKER_THRESHOLD", "0.85"))
-# 缓存向量粗筛候选数（先用向量检索取 N 条候选，再交给 Reranker 精排）
+# 缓存 Reranker 精排阈值（已废弃，缓存已改为单阶段向量相似度匹配，不再使用 Reranker）
+# 保留此配置项仅为向后兼容，实际缓存匹配仅使用 CACHE_COARSE_THRESHOLD
+CACHE_RERANKER_THRESHOLD = float(os.getenv("CACHE_RERANKER_THRESHOLD", "0.70"))
+# 缓存向量检索候选数（向量检索取 N 条候选，取相似度最高者作为命中）
 CACHE_CANDIDATE_COUNT = int(os.getenv("CACHE_CANDIDATE_COUNT", "10"))
 # 缓存 Collection 专用索引类型（独立于主知识库）
 # HNSW 对小规模数据（< 2000 条）召回率极高，适合缓存场景
