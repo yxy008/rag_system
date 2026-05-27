@@ -731,6 +731,7 @@ class VectorStoreManager:
         self._reranker_manager = None
         self._reranker_enabled: bool = RERANKER_ENABLED
         self._multi_query_enabled: bool = MULTI_QUERY_ENABLED
+        self._hybrid_alpha: Optional[float] = None  # 动态 alpha（None 表示使用默认值）
         self._on_documents_changed_callbacks: List[callable] = []
         self._doc_count_cache_value: int = 0
         self._doc_count_cache_time: float = 0
@@ -1122,7 +1123,7 @@ class VectorStoreManager:
         混合检索（不带 Reranker），用于多查询融合的中间步骤。
         """
         if alpha is None:
-            alpha = HYBRID_SEARCH_ALPHA
+            alpha = self._hybrid_alpha if self._hybrid_alpha is not None else HYBRID_SEARCH_ALPHA
 
         vector_store = self.get_or_create_vector_store()
         candidate_k = max(RERANKER_CANDIDATE_K, top_k * 2)
@@ -1193,7 +1194,7 @@ class VectorStoreManager:
         混合检索核心实现：向量检索 + BM25 → RRF 融合。
         """
         if alpha is None:
-            alpha = HYBRID_SEARCH_ALPHA
+            alpha = self._hybrid_alpha if self._hybrid_alpha is not None else HYBRID_SEARCH_ALPHA
 
         vector_store = self.get_or_create_vector_store()
 
@@ -1329,7 +1330,7 @@ class VectorStoreManager:
             return self._multi_query_search_with_scores(query, top_k, alpha)
 
         if alpha is None:
-            alpha = HYBRID_SEARCH_ALPHA
+            alpha = self._hybrid_alpha if self._hybrid_alpha is not None else HYBRID_SEARCH_ALPHA
 
         vector_store = self.get_or_create_vector_store()
 

@@ -37,6 +37,7 @@ from core.config import (
     EVAL_BASE_URL,
     EVAL_LLM_MODEL,
     BASE_DIR,
+    EVAL_EMBEDDING_MODEL,
 )
 
 logger = logging.getLogger(__name__)
@@ -254,7 +255,7 @@ class RAGASEvaluator:
             timeout=60.0,
         )
         self._eval_model = EVAL_LLM_MODEL
-        self._embedding_model = None
+        self._embedding_model = EVAL_EMBEDDING_MODEL
         self._init_db()
 
     # ------------------------------------------------------------------
@@ -327,39 +328,73 @@ class RAGASEvaluator:
     #  LLM 调用
     # ------------------------------------------------------------------
 
-    def _call_llm(self, prompt: str) -> str:
-        """调用 LLM 并返回响应文本""" 
+    def _call_llm(self, prompt: str, max_tokens: int = 1024) -> str:
+        """调用 LLM 并返回响应文本"""
         try:
             resp = self._openai_client.chat.completions.create(
                 model=self._eval_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
-                max_tokens=1024,
+                max_tokens=max_tokens,
             )
             return resp.choices[0].message.content or ""
         except Exception as e:
             logger.error("LLM 调用失败: %s", e)
             return ""
 
-    def _call_llm_json(self, prompt: str) -> Optional[Dict]:
+    def _call_llm_json(self, prompt: str, max_tokens: int = 1024) -> Optional[Dict]:
         """调用 LLM 并解析 JSON 响应"""
-        text = self._call_llm(prompt)
+        text = self._call_llm(prompt, max_tokens=max_tokens)
         if not text:
             return None
         try:
             # 尝试提取 JSON 块
             if "```json" in text:
                 start = text.index("```json") + 7
-                end = text.index("```", start)
-                text = text[start:end]
+                try:
+                    end = text.index("```", start)
+                    text = text[start:end]
+                except ValueError:
+                    # 截断容错：找不到结束 ``` 时取到文本末尾
+                    text = text[start:]
             elif "```" in text:
                 start = text.index("```") + 3
-                end = text.index("```", start)
-                text = text[start:end]
-            return json.loads(text.strip())
+                try:
+                    end = text.index("```", start)
+                    text = text[start:end]
+                except ValueError:
+                    text = text[start:]
+            # 去除前后空白
+            text = text.strip()
+            # 尝试修复截断的 JSON：追加必要的闭合符号
+            text = self._repair_truncated_json(text)
+            return json.loads(text)
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning("LLM JSON 解析失败: %s, 原始输出: %s", e, text[:200])
             return None
+
+    @staticmethod
+    def _repair_truncated_json(text: str) -> str:
+        """
+        修复被 max_tokens 截断的 JSON 输出
+
+        尝试补充缺失的闭合括号和引号，使截断的 JSON 可以被解析。
+        """
+        # 移除尾部的非法字符
+        text = text.rstrip(",\n\r\t ")
+
+        # 统计未闭合的括号
+        braces = text.count("{") - text.count("}")
+        brackets = text.count("[") - text.count("]")
+
+        # 如果最后是一个不完整的字符串值（引号未闭合），补上引号
+        if text.count('"') % 2 != 0:
+            text += '"'
+
+        # 补充缺失的闭合括号
+        text += "]" * brackets + "}" * braces
+
+        return text
 
     # ------------------------------------------------------------------
     #  数据收集
@@ -433,7 +468,7 @@ class RAGASEvaluator:
         """
         context_text = "\n\n---\n\n".join(contexts[:5])  # 最多取 5 段上下文
         prompt = FAITHFULNESS_PROMPT.format(context=context_text[:4000], answer=answer[:2000])
-        result = self._call_llm_json(prompt)
+        result = self._call_llm_json(prompt, max_tokens=2048)
 
         if not result or "statements" not in result:
             return 0.0
@@ -466,8 +501,12 @@ class RAGASEvaluator:
 
         try:
             model = self._get_embedding_model()
-            orig_emb = model.encode(question, normalize_embeddings=True)
-            gen_embs = model.encode(generated_questions, normalize_embeddings=True)
+            orig_emb = model.encode(question)
+            gen_embs = model.encode(generated_questions)
+
+            # 手动 L2 归一化（新版 sentence-transformers 不再支持 normalize_embeddings 参数）
+            orig_emb = orig_emb / (np.linalg.norm(orig_emb, axis=-1, keepdims=True) + 1e-10)
+            gen_embs = gen_embs / (np.linalg.norm(gen_embs, axis=-1, keepdims=True) + 1e-10)
 
             # 确保 orig_emb 是 1D
             if orig_emb.ndim > 1:
@@ -574,7 +613,7 @@ class RAGASEvaluator:
             context=context_text[:3000],
             ground_truth=ground_truth[:1500],
         )
-        result = self._call_llm_json(prompt)
+        result = self._call_llm_json(prompt, max_tokens=2048)
 
         if not result or "entities" not in result:
             return 0.0
@@ -600,7 +639,7 @@ class RAGASEvaluator:
             context=context_text[:4000],
             ground_truth=ground_truth[:2000],
         )
-        result = self._call_llm_json(prompt)
+        result = self._call_llm_json(prompt, max_tokens=2048)
 
         if not result or "statements" not in result:
             return 0.0

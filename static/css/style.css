@@ -2987,3 +2987,191 @@ input, textarea { font-family: inherit; }
   .profile-info-grid { grid-template-columns: 1fr; }
   .profile-container { padding: 20px 18px; }
 }
+
+/* ============================================================
+   OpenAPI 管理面板
+   ============================================================ */
+
+.openapi-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.openapi-section-header h3 {
+  margin: 0;
+}
+
+.openapi-code-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.9;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.openapi-code-block code {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.openapi-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 32px 0;
+  font-size: 13px;
+}
+
+/* Key 列表卡片 */
+.openapi-key-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  background: var(--bg-surface);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.openapi-key-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-light);
+}
+
+.openapi-key-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.openapi-key-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.openapi-key-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+  margin-top: 2px;
+}
+
+.openapi-key-meta {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.openapi-key-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.openapi-key-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+.openapi-status-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  line-height: 1.5;
+}
+
+.openapi-status-active {
+  background: rgba(39, 174, 96, 0.1);
+  color: #27ae60;
+}
+
+.openapi-status-revoked {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+/* 表单 */
+.openapi-form-group {
+  margin-bottom: 16px;
+}
+
+.openapi-form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.openapi-input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.openapi-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+
+.openapi-form-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin-bottom: 8px;
+  min-height: 16px;
+}
+
+/* Key 展示 */
+.openapi-warn-box {
+  background: rgba(243, 156, 18, 0.08);
+  border: 1px solid rgba(243, 156, 18, 0.25);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #e67e22;
+  line-height: 1.5;
+}
+
+.openapi-key-display {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  word-break: break-all;
+  line-height: 1.6;
+  color: var(--text-primary);
+  user-select: all;
+}

@@ -217,6 +217,13 @@
             </svg>
             <span>设置</span>
           </button>
+          <button class="sidebar-menu-item" onclick="switchTab('openapi')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+            </svg>
+            <span>OpenAPI</span>
+          </button>
           <div class="sidebar-menu-divider"></div>
           <button class="sidebar-menu-item sidebar-menu-item-danger" onclick="handleLogout()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -912,7 +919,63 @@
         </div>
       </div>
 
-    <!-- ====== 个人中心面板 ====== -->
+    <!-- ====== OpenAPI 管理面板 ====== -->
+      <div class="tab-panel" id="panel-openapi">
+        <div class="panel-container">
+          <div class="panel-header">
+            <h2>OpenAPI 管理</h2>
+          </div>
+          <div class="panel-body">
+
+            <div class="panel-section">
+              <h3>接口信息</h3>
+              <div class="status-grid">
+                <div class="status-item">
+                  <span class="status-label">问答接口</span>
+                  <span class="status-value">POST /api/open/chat</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">认证方式</span>
+                  <span class="status-value">X-API-Key 请求头</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">请求格式</span>
+                  <span class="status-value">{"input": "问题"}</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label">输出模式</span>
+                  <span class="status-value">非流式 JSON</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3>调用示例</h3>
+              <div class="openapi-code-block">
+                <code>curl -X POST http://localhost:5000/api/open/chat \
+  -H "X-API-Key: rag-xxxx..." \
+  -H "Content-Type: application/json" \
+  -d '{"input": "公司加班费怎么算？"}'</code>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <div class="openapi-section-header">
+                <h3>API Key 列表</h3>
+                <button class="btn-action" onclick="showCreateKeyDialog()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  创建 Key
+                </button>
+              </div>
+              <p style="font-size:12px;color:var(--text-muted);margin:-4px 0 12px;">Key 仅在创建时显示完整值，如遗忘请吊销后重新创建</p>
+              <div id="openapi-keys-list">
+                <div class="openapi-empty">加载中...</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
       <div class="tab-panel" id="panel-profile">
         <div class="profile-container">
           <div class="profile-header">
@@ -1024,6 +1087,50 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js?v=20260515"></script>
+  <!-- ====== 创建 API Key 弹窗 ====== -->
+  <div class="modal-overlay" id="create-key-modal" style="display:none;">
+    <div class="manage-modal" style="max-width:420px;">
+      <div class="manage-modal-header">
+        <h2>创建 API Key</h2>
+        <button class="manage-modal-close" onclick="closeCreateKeyDialog()">&times;</button>
+      </div>
+      <div style="padding:20px 24px;">
+        <div class="openapi-form-group">
+          <label>名称 <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="create-key-name" placeholder="例如：测评平台" class="openapi-input" />
+        </div>
+        <div class="openapi-form-group">
+          <label>描述</label>
+          <input type="text" id="create-key-desc" placeholder="可选，描述用途" class="openapi-input" />
+        </div>
+        <div class="openapi-form-group">
+          <label>速率限制（次/分钟）</label>
+          <input type="number" id="create-key-rate" value="60" min="1" max="600" class="openapi-input" />
+        </div>
+        <div id="create-key-error" class="openapi-form-error"></div>
+        <button class="btn-action" style="width:100%;justify-content:center;background:var(--accent);color:#fff;border-color:var(--accent);" onclick="doCreateKey()">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 显示新 Key 弹窗 ====== -->
+  <div class="modal-overlay" id="show-key-modal" style="display:none;">
+    <div class="manage-modal" style="max-width:520px;">
+      <div class="manage-modal-header">
+        <h2>创建成功</h2>
+        <button class="manage-modal-close" onclick="closeShowKeyDialog()">&times;</button>
+      </div>
+      <div style="padding:20px 24px;">
+        <div class="openapi-warn-box">请立即复制并保存此 Key，关闭后将无法再次查看</div>
+        <div class="openapi-key-display" id="show-key-value"></div>
+        <button class="btn-action" style="width:100%;justify-content:center;margin-top:14px;" onclick="copyNewKey()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          复制 Key
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js?v=20260525"></script>
 </body>
 </html>

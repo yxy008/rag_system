@@ -41,13 +41,17 @@ class RerankerManager:
             if model_path.startswith("./") or model_path.startswith(".\\"):
                 model_path = str(BASE_DIR / model_path)
 
-            logger.info(f"正在加载 Reranker 模型：{model_path}")
+            # 自动检测 CUDA 可用性，不可用时回退到 CPU
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+            logger.info(f"正在加载 Reranker 模型：{model_path}，设备：{device}")
             self._model = CrossEncoder(
                 model_name_or_path=model_path,
                 max_length=512,
-                device="cuda",
+                device=device,
             )
-            logger.info("Reranker 模型加载完成（GPU 加速）")
+            logger.info(f"Reranker 模型加载完成（设备：{device}）")
         return self._model
 
     def rerank(

@@ -61,3 +61,6 @@ docs/
 *.bat
 *.db
 data/conversations.db
+
+scripts/extract_docs.py
+scripts/generate_evaluation.py

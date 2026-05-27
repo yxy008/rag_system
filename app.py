@@ -353,7 +353,8 @@ def chat():
         else:
             semantic_cache.record_miss()
 
-        # 临时切换混合检索/Reranker/多查询 状态
+        # 临时切换混合检索/Reranker 状态
+        # 注意：动态 alpha 和多查询判断已在 rag.query() 内部处理
         orig_hybrid = vs_manager.is_hybrid_search_enabled()
         orig_reranker = vs_manager.is_reranker_enabled()
         orig_multi_query = vs_manager.is_multi_query_enabled()
@@ -361,8 +362,6 @@ def chat():
             vs_manager.set_hybrid_search(bool(hybrid))
         if reranker is not None:
             vs_manager.set_reranker(bool(reranker))
-        # 禁用多查询 LLM 改写，避免一次请求调用两次 LLM
-        vs_manager.set_multi_query(False)
 
         retrieval_start = time.time()
         if user_profile_context:
@@ -509,9 +508,13 @@ def chat_stream():
         try:
             # 获取用户画像上下文
             user_profile_context = ""
+            adaptive_system_prompt = None
             if username:
                 try:
                     user_profile_context = profile_manager.get_adaptive_prompt_context(username, style)
+                    if user_profile_context:
+                        from core.config import SYSTEM_PROMPT
+                        adaptive_system_prompt = SYSTEM_PROMPT + "\n\n## 个性化适配指令\n" + user_profile_context
                 except Exception as e:
                     logger.warning(f"获取用户画像失败：{e}")
 
@@ -608,14 +611,33 @@ def chat_stream():
 
             # 先检索（获取 sources），再流式生成
             retrieval_start = time.time()
+
+            # 轻量动态检索
+            dynamic_alpha = rag._get_dynamic_alpha(question)
+            use_multi_query = rag._should_use_multi_query(question)
+            if orig_hybrid:
+                vs_manager._hybrid_alpha = dynamic_alpha
+            if use_multi_query and not orig_multi_query:
+                vs_manager.set_multi_query(True)
+
             docs_with_scores = vs_manager.similarity_search_with_scores(question)
+
+            # 恢复动态参数
+            vs_manager._hybrid_alpha = None
+            if use_multi_query and not orig_multi_query:
+                vs_manager.set_multi_query(orig_multi_query)
+
             retrieval_latency = (time.time() - retrieval_start) * 1000
-            from core.rag_chain import format_docs_with_scores
+            from core.rag_chain import format_docs_with_scores, _langchain_message_to_openai_dict
             context = format_docs_with_scores(docs_with_scores)
 
-            if history:
-                history_text = rag._format_history(history)
-                context = f"【对话历史】\n{history_text}\n\n【本次检索结果】\n{context}"
+            # 构建分层消息（方案4 + 方案6）
+            openai_messages = rag._build_layered_messages(
+                question=question,
+                context=context,
+                history=history,
+                adaptive_system_prompt=adaptive_system_prompt if user_profile_context else None,
+            )
 
             # 构建 sources 并立即发送（先于答案流式输出）
             sources = []
@@ -649,21 +671,10 @@ def chat_stream():
             # 先发送数据源事件（前端立即渲染折叠的数据源）
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
 
-            from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-            from core.config import SYSTEM_PROMPT, RAG_PROMPT_TEMPLATE, OPENAI_MODEL
+            from core.config import OPENAI_MODEL
 
-            adaptive_system_prompt = SYSTEM_PROMPT
-            if user_profile_context:
-                adaptive_system_prompt = SYSTEM_PROMPT + "\n\n## 个性化适配指令\n" + user_profile_context
-
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(adaptive_system_prompt),
-                HumanMessagePromptTemplate.from_template(RAG_PROMPT_TEMPLATE),
-            ])
-            messages = prompt.format_messages(context=context, question=question)
-
-            from core.rag_chain import _langchain_messages_to_openai
-            openai_messages = _langchain_messages_to_openai(messages)
+            # 分层消息已在上文构建完成，直接使用
+            # openai_messages 已包含：System + 检索结果 + 历史 + 当前问题
 
             answer_parts = []
             input_tokens = 0
@@ -2142,6 +2153,40 @@ def batch_qa():
         "success_count": sum(1 for r in results if r["status"] == "success"),
         "error_count": sum(1 for r in results if r["status"] == "error"),
     })
+
+
+# ============================================================
+# 注册 OpenAPI 蓝图（供外部系统/测评平台接入）
+# ============================================================
+from routes.openapi import openapi_bp
+
+app.register_blueprint(openapi_bp)
+
+# 将核心组件注入 app.config，供蓝图访问
+app.config["RAG_CHAIN"] = rag
+app.config["VS_MANAGER"] = vs_manager
+app.config["SEMANTIC_CACHE"] = semantic_cache
+app.config["EVALUATION_SERVICE"] = evaluation_service
+app.config["CONFIDENCE_EVALUATOR"] = confidence_evaluator
+
+# 让 /api/open/chat 路径跳过全局 Token 认证（使用 API Key 认证替代）
+_original_auth_before_request = auth_before_request
+
+
+def _patched_auth_before_request():
+    """修改全局认证：/api/open/chat 路径跳过 Token 认证"""
+    if request.path.startswith("/api/open/chat"):
+        return None
+    return _original_auth_before_request()
+
+
+# 替换全局 before_request 中的认证函数
+app.before_request_funcs[None] = [
+    func if func is not auth_before_request else _patched_auth_before_request
+    for func in app.before_request_funcs.get(None, [])
+]
+
+logger.info("OpenAPI 蓝图已注册：POST /api/open/chat")
 
 
 # ============================================================

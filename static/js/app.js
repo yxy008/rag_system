@@ -370,6 +370,9 @@ function switchTab(tab) {
   if (tab === 'bookmarks') {
     loadBookmarks();
   }
+  if (tab === 'openapi') {
+    loadApiKeys();
+  }
 
   var menu = document.getElementById('sidebar-user-menu');
   if (menu && menu.style.display === 'block') {
@@ -3647,10 +3650,164 @@ async function ragasLoadGroundTruths() {
     });
     html += '</tbody></table>';
     container.innerHTML = html;
-
   } catch (e) {
     container.innerHTML = '<p style="color:var(--danger);">加载失败: ' + e.message + '</p>';
   }
+}
+
+
+// ============================================================
+// OpenAPI 管理
+// ============================================================
+
+var _newlyCreatedKey = '';
+
+function loadApiKeys() {
+  var container = document.getElementById('openapi-keys-list');
+  if (!container) return;
+
+  apiFetch('/api/open/keys?include_inactive=1')
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var keys = data.keys || [];
+    if (keys.length === 0) {
+      container.innerHTML = '<div class="openapi-empty">暂无 API Key，点击上方按钮创建<br><span style="font-size:12px;color:var(--text-muted);margin-top:6px;display:inline-block;">Key 仅在创建时显示一次，如遗忘请吊销后重新创建</span></div>';
+      return;
+    }
+
+    var html = '';
+    keys.forEach(function(key) {
+      var statusClass = key.is_active ? 'openapi-status-active' : 'openapi-status-revoked';
+      var statusText = key.is_active ? '活跃' : '已吊销';
+      var lastUsed = key.last_used_at ? key.last_used_at.substr(0, 16) : '—';
+
+      html += '<div class="openapi-key-card">';
+      html += '  <div class="openapi-key-info">';
+      html += '    <div class="openapi-key-name">' + escapeHtml(key.name) + ' <span class="openapi-status-badge ' + statusClass + '">' + statusText + '</span></div>';
+      if (key.description) {
+        html += '    <div class="openapi-key-desc">' + escapeHtml(key.description) + '</div>';
+      }
+      html += '    <div class="openapi-key-meta">';
+      html += '      <span>' + key.rate_limit + ' 次/分</span>';
+      html += '      <span>调用 ' + key.usage_count + ' 次</span>';
+      html += '      <span>创建于 ' + (key.created_at || '').substr(0, 10) + '</span>';
+      if (lastUsed !== '—') {
+        html += '      <span>最后使用 ' + lastUsed + '</span>';
+      }
+      html += '    </div>';
+      html += '  </div>';
+      html += '  <div class="openapi-key-actions">';
+      if (key.is_active) {
+        html += '    <button class="btn-sm" onclick="revokeApiKey(' + key.id + ')">吊销</button>';
+      } else {
+        html += '    <button class="btn-sm" onclick="activateApiKey(' + key.id + ')">激活</button>';
+      }
+      html += '    <button class="btn-sm btn-sm-danger" onclick="deleteApiKey(' + key.id + ')">删除</button>';
+      html += '  </div>';
+      html += '</div>';
+    });
+
+    container.innerHTML = html;
+  })
+  .catch(function(err) {
+    container.innerHTML = '<div class="openapi-empty" style="color:var(--danger);">加载失败：' + err.message + '</div>';
+  });
+}
+
+function showCreateKeyDialog() {
+  document.getElementById('create-key-name').value = '';
+  document.getElementById('create-key-desc').value = '';
+  document.getElementById('create-key-rate').value = '60';
+  document.getElementById('create-key-error').textContent = '';
+  document.getElementById('create-key-modal').style.display = 'flex';
+}
+
+function closeCreateKeyDialog() {
+  document.getElementById('create-key-modal').style.display = 'none';
+}
+
+function doCreateKey() {
+  var name = document.getElementById('create-key-name').value.trim();
+  var desc = document.getElementById('create-key-desc').value.trim();
+  var rate = parseInt(document.getElementById('create-key-rate').value) || 60;
+  var errorEl = document.getElementById('create-key-error');
+
+  if (!name) {
+    errorEl.textContent = '请输入名称';
+    return;
+  }
+
+  apiFetch('/api/open/keys', {
+    method: 'POST',
+    body: JSON.stringify({ name: name, description: desc, rate_limit: rate })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      errorEl.textContent = data.error;
+      return;
+    }
+    closeCreateKeyDialog();
+    _newlyCreatedKey = data.api_key || '';
+    document.getElementById('show-key-value').textContent = _newlyCreatedKey;
+    document.getElementById('show-key-modal').style.display = 'flex';
+    loadApiKeys();
+  })
+  .catch(function(err) {
+    errorEl.textContent = '创建失败：' + err.message;
+  });
+}
+
+function closeShowKeyDialog() {
+  document.getElementById('show-key-modal').style.display = 'none';
+  _newlyCreatedKey = '';
+}
+
+function copyNewKey() {
+  if (!_newlyCreatedKey) return;
+  navigator.clipboard.writeText(_newlyCreatedKey).then(function() {
+    alert('已复制到剪贴板');
+  }).catch(function() {
+    var ta = document.createElement('textarea');
+    ta.value = _newlyCreatedKey;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('已复制到剪贴板');
+  });
+}
+
+function revokeApiKey(keyId) {
+  if (!confirm('确定要吊销此 API Key 吗？')) return;
+  apiFetch('/api/open/keys/' + keyId + '/revoke', { method: 'POST' })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) loadApiKeys();
+    else alert(data.error || '操作失败');
+  })
+  .catch(function(err) { alert('操作失败：' + err.message); });
+}
+
+function activateApiKey(keyId) {
+  apiFetch('/api/open/keys/' + keyId + '/activate', { method: 'POST' })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) loadApiKeys();
+    else alert(data.error || '操作失败');
+  })
+  .catch(function(err) { alert('操作失败：' + err.message); });
+}
+
+function deleteApiKey(keyId) {
+  if (!confirm('确定要永久删除此 API Key 吗？此操作不可恢复。')) return;
+  apiFetch('/api/open/keys/' + keyId, { method: 'DELETE' })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) loadApiKeys();
+    else alert(data.error || '操作失败');
+  })
+  .catch(function(err) { alert('操作失败：' + err.message); });
 }
 
 async function ragasDeleteGroundTruth(id) {
