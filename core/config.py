@@ -187,6 +187,16 @@ CACHE_CANDIDATE_COUNT = int(os.getenv("CACHE_CANDIDATE_COUNT", "10"))
 # HNSW 对小规模数据（< 2000 条）召回率极高，适合缓存场景
 MILVUS_CACHE_INDEX_TYPE = os.getenv("MILVUS_CACHE_INDEX_TYPE", "HNSW")
 
+# ========== MCP Server 配置 ==========
+# MCP Server 名称（客户端识别用）
+MCP_SERVER_NAME = os.getenv("MCP_SERVER_NAME", "rag-system-mcp-server")
+# MCP Server 版本
+MCP_SERVER_VERSION = os.getenv("MCP_SERVER_VERSION", "1.0.0")
+# SSE 模式监听端口（仅 --sse 模式生效）
+MCP_SSE_PORT = int(os.getenv("MCP_SSE_PORT", "8765"))
+# SSE 模式监听地址
+MCP_SSE_HOST = os.getenv("MCP_SSE_HOST", "0.0.0.0")
+
 
 def get_model_display_name(model_path: str) -> str:
     """

@@ -24,7 +24,7 @@ class RerankerManager:
     """
     Reranker 管理器：加载模型 + 执行重排序
 
-    模型选择：BAAI/bge-reranker-large
+    模型选择：BAAI/bge-reranker-v2-m3
       - 566M 参数，中文 BGE 系列 reranker
       - 与 BGE-M3 Embedding 模型配套使用效果最佳
       - 输入：(query, document) → 输出：相关性分数 [0, 1]

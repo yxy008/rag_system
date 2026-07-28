@@ -1,6 +1,6 @@
 # RAG 智能问答系统 · Python 版
 
-基于 **LangChain + Chroma + BGE 中文模型** 构建的企业级本地 RAG（检索增强生成）智能问答系统，支持混合检索、两阶段精排、语义缓存、多会话管理等完整功能。
+基于 **LangChain + Chroma / Faiss / Milvus + BGE 中文模型** 构建的企业级本地 RAG（检索增强生成）智能问答系统，支持多查询融合检索、轻量动态检索、两阶段精排、分层上下文架构、语义缓存、多会话管理等完整功能。
 
 > 另有 **Java 版**（Spring AI + Elasticsearch + ONNX Runtime），见 [rag_system_springai](https://github.com/yxy008/rag_system_springai.git)。
 
@@ -57,16 +57,33 @@
                     |                             |
                     v                             v
           +---------+---------+        +---------+---------+
-          | Vector DB (Chroma)|        | Keyword Index     |
+          | Vector DB          |        | Keyword Index     |
+          | Chroma/Faiss/Milvus|        | (pickle 持久化)    |
           +---------+---------+        +---------+---------+
                     |                             |
                     +-------------+---------------+
                                   |
                     (用户提问)     v
                     +-------------+---------------+
-                    |      混合检索 (RRF 融合)     |
-                    |  向量检索 + BM25 关键词检索   |
-                    |        粗筛: top 12          |
+                    |   轻量动态检索               |
+                    | 根据问题特征动态调整 alpha     |
+                    | (精确术语→偏BM25, 口语→偏向量)|
+                    +-------------+---------------+
+                                  |
+                                  v
+                    +-------------+---------------+
+                    |   多查询融合检索（可选）       |
+                    | LLM 生成 2~3 个查询变体      |
+                    | 分别检索 → RRF 融合去重      |
+                    +-------------+---------------+
+                                  |
+                                  v
+                    +-------------+---------------+
+                    |   混合检索 (RRF 融合)         |
+                    | 向量检索 + BM25 关键词检索    |
+                    |  COSINE 最低相似度过滤       |
+                    |  粗筛: max(candidate_k,      |
+                    |        top_k*2) 条候选       |
                     +-------------+---------------+
                                   |
                                   v
@@ -74,20 +91,31 @@
                     |   Reranker 精排              |
                     | (bge-reranker-v2-m3)        |
                     |   交叉编码器重排序             |
-                    |        精筛: top 4           |
+                    |   相关度阈值过滤 + 回退机制    |
+                    |   精筛: top_k 条             |
+                    +-------------+---------------+
+                                  |
+                                  v
+                    +-------------+---------------+
+                    |   检索结果缓存（LRU）          |
+                    | (query, top_k, hybrid,       |
+                    |  reranker) 缓存 key          |
                     +-------------+---------------+
                                   |
                                   v
                     +-------------+---------------+
                     |   两级语义缓存               |
                     | 精确匹配(MD5) + 语义匹配     |
-                    | (Chroma 向量相似度)          |
+                    | (向量相似度, COSINE 阈值)    |
                     +-------------+---------------+
                                   |
                     (缓存未命中时)  v
                     +-------------+---------------+
-                    |   Augmented Query           |
-                    | (Context + History + Q)     |
+                    |   分层上下文构建             |
+                    | L1: System Prompt           |
+                    | L2: 检索结果(system role)   |
+                    | L3: 对话历史                |
+                    | L4: 当前问题                |
                     +-------------+---------------+
                                   |
                                   v
@@ -109,11 +137,15 @@
 
 | 特性 | 说明 |
 |------|------|
-| **两阶段检索** | 粗筛（混合检索 RRF 融合）→ 精筛（Reranker 交叉编码器），兼顾速度与精度 |
-| **混合检索** | 向量语义检索 + BM25 关键词检索，RRF 算法融合排序 |
+| **两阶段检索** | 粗筛（混合检索 RRF 融合，含 COSINE 最低相似度过滤）→ 精筛（Reranker 交叉编码器 + 相关度阈值过滤 + 回退机制） |
+| **多查询融合检索** | LLM 生成 2~3 个查询变体，分别检索后 RRF 融合去重，大幅提升复杂语义问题的召回率 |
+| **轻量动态检索** | 零额外 LLM 调用，根据问题特征自动调整混合检索权重 alpha（精确术语偏 BM25，口语化偏向量） |
+| **混合检索** | 向量语义检索 + BM25 关键词检索，RRF 算法融合排序，alpha 动态可调 |
 | **中文深度优化** | BGE-M3 中文 Embedding + jieba 中文分词 + BGE-Reranker-v2-M3 中文精排 |
 | **组合拳分块** | 章节感知切分 + 语义边界切分 + 递归字符切分，根据文档特征自动路由 |
-| **两级语义缓存** | 精确匹配（MD5）+ 语义匹配（向量相似度），大幅降低 LLM 调用成本 |
+| **两级语义缓存** | 精确匹配（MD5）+ 语义匹配（向量相似度 + COSINE 阈值过滤），大幅降低 LLM 调用成本 |
+| **分层上下文架构** | System Prompt → 检索结果 → 对话历史 → 当前问题，分层注入，LLM 可区分参考信息与用户输入 |
+| **多向量数据库** | 支持 Chroma / Faiss / Milvus 三种后端，通过环境变量一键切换 |
 | **GPU 加速** | Embedding 和 Reranker 均支持 CUDA GPU 推理 |
 | **多格式支持** | txt / pdf / docx / md / xlsx / csv / html / sqlite |
 | **SSE 流式输出** | Server-Sent Events 流式问答，逐字返回，体验流畅 |
@@ -122,8 +154,9 @@
 | **仪表盘** | 系统状态、知识库统计、缓存命中率、评估指标一站式展示 |
 | **速率限制** | 基于 IP 的请求频率控制，防止滥用 |
 | **LLM 重试** | 指数退避自动重试，应对 API 限流和临时故障 |
-| **动态配置** | 运行时可通过 API 切换混合检索 / Reranker 开关 |
+| **动态配置** | 运行时可通过 API 切换混合检索 / Reranker / 多查询融合 开关 |
 | **缓存预热** | 启动时自动加载 FAQ 预热缓存，支持 API 批量预热 |
+| **检索缓存（LRU）** | 对相同检索参数缓存结果，入库/清空时自动失效，减少重复计算 |
 
 ---
 
@@ -133,13 +166,13 @@
 |------|------|------|------|
 | **RAG 框架** | LangChain | 1.3 | 链式调用、文档加载、文本分割 |
 | **Web 框架** | Flask | 3.1 | REST API + SSE 流式 + 模板渲染 |
-| **向量数据库** | Chroma | 0.6 | HTTP 服务模式，持久化存储 |
-| **Embedding** | BGE-M3 (BAAI) | - | 1024 维，100+ 语言，HuggingFace 推理 |
+| **向量数据库** | Chroma / Faiss / Milvus | - | 多后端支持，Chroma HTTP 服务 / Faiss 本地内存 / Milvus 分布式 |
+| **Embedding** | BGE-M3 (BAAI) | - | 1024 维，100+ 语言，8192 tokens，HuggingFace 推理 |
 | **Reranker** | BGE-Reranker-v2-M3 | - | 交叉编码器，8192 tokens，HuggingFace 推理 |
-| **关键词检索** | BM25 (rank-bm25) | 0.2 | Okapi BM25 算法 |
+| **关键词检索** | BM25 (rank-bm25) | 0.2 | Okapi BM25 算法，支持 pickle 本地持久化 |
 | **中文分词** | jieba | 0.42 | 精确模式分词，HMM 新词发现 |
 | **LLM** | OpenAI 兼容接口 | - | 支持 GPT-4o / DeepSeek / Qwen / Ollama |
-| **文档解析** | PyPDF / pdfplumber / python-docx / unstructured / openpyxl / BeautifulSoup | - | 多格式文档加载 |
+| **文档解析** | PyPDF / pdfplumber / python-docx / openpyxl / BeautifulSoup | - | 多格式文档加载 |
 | **用户认证** | Werkzeug Security + SQLite | - | 密码哈希 + Token 认证 |
 | **对话存储** | SQLite | - | 会话历史持久化 |
 | **前端** | 原生 HTML/CSS/JS | - | 响应式设计，侧边栏导航 |
@@ -153,6 +186,10 @@
 - Python 3.9+
 - CUDA GPU（可选，用于加速 Embedding 和 Reranker）
 - Windows / Linux / macOS
+- 向量数据库后端三选一：
+  - **Chroma**（默认）：需启动 Chroma 服务
+  - **Faiss**：纯本地内存索引，无需外部服务，适合小规模快速验证
+  - **Milvus**：需启动 Docker Milvus 服务，适合大规模生产环境
 
 ### 第一步：安装依赖
 
@@ -186,14 +223,30 @@ OPENAI_MODEL=gpt-3.5-turbo
 EMBEDDING_MODEL_NAME=BAAI/bge-m3
 EMBEDDING_DEVICE=cuda
 
+# 向量数据库后端（chroma / faiss / milvus）
+VECTOR_STORE_BACKEND=chroma
+
 # Chroma 服务配置
 CHROMA_HOST=localhost
 CHROMA_PORT=8000
 
 # 检索配置
-RETRIEVAL_TOP_K=4
-CHUNK_SIZE=1200
+RETRIEVAL_TOP_K=6
+CHUNK_SIZE=600
 CHUNK_OVERLAP=200
+
+# 多查询融合检索
+MULTI_QUERY_ENABLED=true
+MULTI_QUERY_COUNT=3
+
+# Reranker 配置
+RERANKER_ENABLED=true
+RERANKER_CANDIDATE_K=40
+RERANKER_RELEVANCE_THRESHOLD=75
+
+# 缓存配置
+CACHE_SIMILARITY_THRESHOLD=0.95
+CACHE_COARSE_THRESHOLD=0.70
 ```
 
 **使用 Ollama 本地模型（免费）：**
@@ -204,11 +257,34 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 OPENAI_MODEL=llama3.2
 ```
 
-### 第三步：启动 Chroma 向量数据库
+### 第三步：启动向量数据库
+
+根据 `VECTOR_STORE_BACKEND` 选择对应的启动方式：
+
+**Chroma（默认）：**
 
 ```bash
 # 使用项目自带的 chroma
 .venv\Scripts\chroma.exe run --path ./chroma_db --host localhost --port 8000
+```
+
+**Faiss（无需外部服务）：**
+
+设置环境变量即可，无需额外启动服务：
+```env
+VECTOR_STORE_BACKEND=faiss
+```
+
+**Milvus（Docker）：**
+
+```bash
+docker run -d --name milvus-standalone -p 19530:19530 -p 9091:9091 milvusdb/milvus:latest
+```
+然后配置：
+```env
+VECTOR_STORE_BACKEND=milvus
+MILVUS_HOST=localhost
+MILVUS_PORT=19530
 ```
 
 ### 第四步：准备文档并入库
@@ -233,29 +309,46 @@ python app.py
 
 ```
 rag_system/
-├── app.py                    # Flask Web 服务入口，所有 API 路由
-├── config.py                 # 全局配置管理（.env 读取）
-├── rag_chain.py              # RAG 核心链：检索 + 生成
-├── vector_store.py           # 向量数据库管理（Chroma + BM25 + Reranker）
-├── document_processor.py     # 文档加载 + 组合拳分块策略
-├── semantic_cache.py         # 两级语义缓存（精确 + 语义匹配）
-├── reranker.py               # BGE-Reranker 交叉编码器精排
-├── conversation_store.py     # 对话历史 SQLite 持久化
-├── evaluation.py             # 请求评估统计（命中率、延迟、Token）
-├── rate_limiter.py           # 基于 IP 的速率限制
-├── llm_retry.py              # LLM 调用指数退避重试
-├── ingest.py                 # 命令行文档入库脚本
-├── requirements.txt          # Python 依赖清单
-├── .env.example              # 环境变量模板
-├── cache_warmup.json         # 缓存预热 FAQ 数据
-├── static/
-│   ├── css/style.css         # 前端样式
-│   └── js/app.js             # 前端交互逻辑
+├── app.py                        # Flask Web 服务入口，所有 API 路由
+├── config.py                     # 全局配置管理（.env 读取）
+├── core/                         # 核心模块
+│   ├── config.py                 # 配置管理模块
+│   ├── vector_store.py           # 向量数据库管理（Chroma / Faiss / Milvus + BM25 + Reranker）
+│   ├── rag_chain.py              # RAG 核心链：检索 + 生成（分层上下文 + 动态检索）
+│   ├── document_processor.py     # 文档加载 + 组合拳分块策略
+│   ├── semantic_cache.py         # 两级语义缓存（精确 + 语义匹配，支持多后端）
+│   ├── reranker.py               # BGE-Reranker-v2-M3 交叉编码器精排 + 阈值过滤
+│   ├── llm_retry.py              # LLM 调用指数退避重试
+│   ├── rate_limiter.py           # 基于 IP 的速率限制
+│   └── api_key_manager.py        # API Key 管理
+├── services/                     # 业务服务层
+│   ├── evaluation.py             # 请求评估统计（命中率、延迟、Token）
+│   ├── ragas_evaluation.py       # RAGAS 评估
+│   ├── confidence.py             # 回答置信度评估
+│   ├── knowledge_graph.py        # 知识图谱
+│   ├── knowledge_health.py       # 知识库健康检查
+│   ├── user_profile.py           # 用户画像
+│   └── collaboration.py          # 协作功能
+├── storage/                      # 存储层
+│   └── conversation_store.py     # 对话历史 SQLite 持久化
+├── routes/                       # API 路由
+│   └── openapi.py                # OpenAPI 路由定义
+├── scripts/                      # 工具脚本
+│   ├── ingest.py                 # 命令行文档入库脚本
+│   ├── download_reranker.py      # Reranker 模型下载
+│   ├── generate_test_data.py     # 测试数据生成
+│   └── ...
+├── data/                         # 数据文件
+│   ├── cache_warmup.json         # 缓存预热 FAQ 数据
+│   └── evaluation_dataset.json   # 评估数据集
+├── static/                       # 前端静态资源
+│   ├── css/style.css             # 前端样式
+│   └── js/app.js                 # 前端交互逻辑
 ├── templates/
-│   └── index.html            # 前端页面模板
-├── docs/
-│   └── RAG 智能问答系统.md    # 项目技术文档
-└── documents/                # 知识库文档目录
+│   └── index.html                # 前端页面模板
+├── requirements.txt              # Python 依赖清单
+├── .env.example                  # 环境变量模板
+└── documents/                    # 知识库文档目录
 ```
 
 ---
@@ -331,15 +424,24 @@ rag_system/
 |--------|--------|------|
 | `OPENAI_MODEL` | gpt-3.5-turbo | LLM 模型名称 |
 | `EMBEDDING_MODEL_NAME` | BAAI/bge-m3 | Embedding 模型 |
-| `RETRIEVAL_TOP_K` | 4 | 最终返回文档数 |
-| `CHUNK_SIZE` | 1200 | 分块大小（字符） |
+| `VECTOR_STORE_BACKEND` | chroma | 向量数据库后端：chroma / faiss / milvus |
+| `RETRIEVAL_TOP_K` | 6 | 最终返回文档数 |
+| `CHUNK_SIZE` | 600 | 分块大小（字符） |
 | `CHUNK_OVERLAP` | 200 | 分块重叠（字符） |
-| `HYBRID_SEARCH_ALPHA` | 0.6 | 混合检索向量权重 |
-| `RERANKER_ENABLED` | true | 是否启用 Reranker |
-| `MULTI_QUERY_ENABLED` | true | 多查询融合检索 |
+| `HYBRID_SEARCH_ALPHA` | 0.6 | 混合检索向量权重（运行时根据问题特征动态调整） |
+| `VECTOR_COSINE_MIN_THRESHOLD` | 0.55 | 向量粗筛 COSINE 最低相似度阈值（低于此值过滤） |
+| `MULTI_QUERY_ENABLED` | true | 是否启用多查询融合检索（LLM 生成查询变体） |
+| `MULTI_QUERY_COUNT` | 3 | 生成的查询变体数量 |
+| `RERANKER_ENABLED` | true | 是否启用 Reranker 精排 |
+| `RERANKER_CANDIDATE_K` | 40 | Reranker 粗筛候选数 |
+| `RERANKER_TOP_K` | 6 | Reranker 精排后返回数量 |
+| `RERANKER_RELEVANCE_THRESHOLD` | 75 | Reranker 相关度阈值（0~100，低于此值过滤，极端情况回退） |
 | `SEMANTIC_CHUNKING_ENABLED` | true | 语义分块 |
 | `CACHE_ENABLED` | true | 语义缓存 |
-| `CACHE_SIMILARITY_THRESHOLD` | 0.85 | 语义匹配相似度阈值 |
+| `CACHE_SIMILARITY_THRESHOLD` | 0.95 | 语义缓存总相似度阈值（主要用于向后兼容） |
+| `CACHE_COARSE_THRESHOLD` | 0.70 | 缓存语义匹配粗筛 COSINE 阈值（实际生效的匹配阈值） |
+| `CACHE_MAX_ENTRIES` | 1000 | 最大缓存条目数 |
+| `CACHE_TTL_HOURS` | 24 | 缓存有效期（小时） |
 
 ---
 
@@ -356,13 +458,21 @@ rag_system/
 | 网页/报告 | 长文本无章节结构 | Embedding 语义切分 |
 | 短文本 | 兜底 | 递归字符切分 |
 
-### 2. 两阶段检索架构
+### 2. 多阶段检索架构
 
 ```
+动态检索（Dynamic Alpha）        多查询融合（Multi-Query）
+  问题特征分析                       LLM 生成 2~3 个查询变体
+  精确术语 → 偏 BM25                 分别检索 → RRF 融合去重
+  口语化   → 偏向量                  ↓
+  alpha ∈ [0.15, 0.9]           提升复杂语义召回率
+
 粗筛（Hybrid Search）          精筛（Reranker）
-  向量 top_k=12                 交叉编码器逐对打分
-    +              RRF 融合  →    ↓
-  BM25 top_k=12                 输出 top 4
+  向量检索                        交叉编码器逐对打分
+    +              RRF 融合  →    相关度阈值过滤（<75分淘汰）
+  BM25 关键词                      ↓
+  COSINE 最低相似度过滤            极端情况回退（全低于阈值）
+  candidate_k=max(40, top_k*2)    输出 top_k 条
 ```
 
 ### 3. 两级语义缓存
@@ -370,8 +480,9 @@ rag_system/
 ```
 用户提问
   → 第一级：MD5 精确匹配（O(1)，始终可用）
-  → 第二级：向量语义匹配（kNN，仅无历史时使用）
+  → 第二级：向量语义匹配（kNN + COSINE 粗筛阈值 0.70）
   → 缓存命中 → 跳过检索和 LLM，直接返回
+  → 缓存策略：LFU 淘汰 + TTL 过期 + 入库自动清空
 ```
 
 ### 4. 中文深度优化
@@ -391,6 +502,41 @@ llm_stream = retry_with_backoff(
 )
 ```
 
+### 6. 轻量动态检索（Dynamic Alpha）
+
+零额外 LLM 调用，根据问题特征自动调节混合检索权重：
+
+| 问题特征 | 调整方向 | 幅度 |
+|----------|----------|------|
+| 精确术语/数字（如"A01"、"500元"） | 偏 BM25 | -0.25 |
+| 引号/书名号精确引用 | 偏 BM25 | -0.15 |
+| 口语化/语义查询（"能不能"、"怎么"） | 偏向量 | +0.10 |
+| 问题长度 > 30 字 | 偏向量（语义理解） | +0.08 |
+| 问题长度 < 8 字 | 偏 BM25（精确查询） | -0.10 |
+
+alpha 动态范围：[0.15, 0.9]
+
+### 7. 分层上下文架构（Layered Context）
+
+与传统将 context + history 拼接为单一字符串不同，采用分层消息结构：
+
+```
+L1 [System]     角色规则        ← 最稳定，缓存命中率最高
+L2 [System]     检索结果        ← 以 system role 注入，LLM 可区分参考信息 vs 用户输入
+L3 [History]    对话历史        ← 原生对话格式（HumanMessage/AIMessage）
+L4 [Human]      当前问题        ← 最不稳定，放最后
+```
+
+### 8. 多后端向量数据库
+
+通过 `VECTOR_STORE_BACKEND` 环境变量一键切换：
+
+| 后端 | 适用场景 | 特点 |
+|------|----------|------|
+| **Chroma** | 默认，中等规模 | HTTP 服务模式，持久化存储 |
+| **Faiss** | 小规模快速验证 | 纯本地内存索引，无需外部服务 |
+| **Milvus** | 大规模生产环境 | 分布式高性能，十亿级向量检索 |
+
 ---
 
 ## Java 版对比
@@ -398,7 +544,7 @@ llm_stream = retry_with_backoff(
 | 维度 | Python 版 | Java 版 |
 |------|-----------|---------|
 | **框架** | Flask + LangChain | Spring Boot 3.3 + Spring AI |
-| **向量数据库** | Chroma | Elasticsearch 8.15 |
+| **向量数据库** | Chroma / Faiss / Milvus | Elasticsearch 8.15 |
 | **Embedding** | BGE-M3 (HuggingFace) | BGE-M3 (ONNX Runtime) |
 | **Reranker** | BGE-Reranker-v2-M3 (HF) | BGE-Reranker-v2-M3 (ONNX) |
 | **关键词检索** | BM25 (rank-bm25) | BM25 (ES 内置) |
@@ -406,7 +552,7 @@ llm_stream = retry_with_backoff(
 | **数据库** | SQLite | MySQL + JPA |
 | **前端** | Flask 模板 | Thymeleaf |
 | **API 接口** | 完全一致 | 完全一致 |
-| **功能** | 完全一致 | 完全一致 |
+| **功能** | 基本一致（Python 版功能更丰富） | 基本一致 |
 
 两个版本功能完全对等，API 接口一致，前端共用同一套 HTML/CSS/JS。选择建议：
 
